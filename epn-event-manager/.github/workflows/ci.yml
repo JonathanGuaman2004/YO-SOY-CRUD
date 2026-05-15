@@ -1,0 +1,52 @@
+name: CI - Taller Mantenimiento SW
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependencias Event Manager
+        working-directory: epn-event-manager
+        run: npm ci
+
+      - name: Compilar Event Manager
+        working-directory: epn-event-manager
+        run: npm run build
+
+      - name: Lint Event Manager
+        working-directory: epn-event-manager
+        run: npm run lint
+
+      - name: Pruebas Event Manager
+        working-directory: epn-event-manager
+        run: npm test
+
+      - name: Instalar dependencias CRUD Misiones
+        working-directory: missions-crud
+        run: npm ci
+
+      - name: Check CRUD Misiones
+        working-directory: missions-crud
+        run: npm run check
+
+      - name: Lint CRUD Misiones
+        working-directory: missions-crud
+        run: npm run lint
+
+      - name: Pruebas CRUD Misiones
+        working-directory: missions-crud
+        run: npm test
