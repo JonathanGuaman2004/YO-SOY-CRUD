@@ -1,5 +1,8 @@
+
+@"
 **/node_modules/
 **/dist/
 **/*.sqlite
 .vscode/
 missions-crud/
+"@ | Out-File -Encoding utf8 .gitignore
