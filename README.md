@@ -69,6 +69,22 @@ $ npm install -g @nestjs/mau
 $ mau deploy
 ```
 
+intaslar:
+npm install eslint --save-dev
+npx eslint --init
+
+
+Event Manager
+Check	Comando
+Compile	npm run build
+Lint	npm run lint
+Tests	npm test
+Missions CRUD
+Check	Comando
+Syntax check	npm run check
+Lint	npm run lint
+Tests	npm test
+
 With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
 ## Resources
