@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EsportsHub — Gestión de Torneos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #080a0f;
+      --surface:   #0e1117;
+      --card:      #111520;
+      --border:    rgba(255,255,255,0.07);
+      --accent:    #00e5ff;
+      --accent2:   #ff3d71;
+      --gold:      #ffd700;
+      --text:      #e8eaf0;
+      --muted:     rgba(232,234,240,0.45);
+      --font-d:    'Bebas Neue', sans-serif;
+      --font-b:    'Syne', sans-serif;
+      --radius:    12px;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-b);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ══════════════════════════════════
+       HEADER
+    ══════════════════════════════════ */
+    header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.85rem 2.5rem;
+      background: rgba(8,10,15,0.7);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-family: var(--font-d);
+      font-size: 1.65rem; letter-spacing: 0.1em;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hub-status {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.72rem; color: var(--muted); font-weight: 500;
+    }
+    .hub-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #444; transition: background .4s, box-shadow .4s;
+    }
+    .hub-dot.online  { background: #22c55e; box-shadow: 0 0 8px #22c55e88; }
+    .hub-dot.offline { background: var(--accent2); box-shadow: 0 0 8px #ff3d7188; }
+
+    /* ══════════════════════════════════
+       HERO — canvas como fondo completo
+    ══════════════════════════════════ */
+    .hero-section {
+      position: relative;
+      height: 100vh; min-height: 600px;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      overflow: hidden; cursor: crosshair;
+    }
+
+    #hero-canvas {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      display: block;
+    }
+
+    /* Velo superior e inferior para transición suave */
+    .hero-section::before,
+    .hero-section::after {
+      content: ''; position: absolute;
+      left: 0; right: 0; z-index: 2;
+      pointer-events: none;
+    }
+    .hero-section::before {
+      top: 0; height: 120px;
+      background: linear-gradient(to bottom, var(--bg), transparent);
+    }
+    .hero-section::after {
+      bottom: 0; height: 160px;
+      background: linear-gradient(to top, var(--bg), transparent);
+    }
+
+    .hero-content {
+      position: relative; z-index: 3;
+      text-align: center; pointer-events: none;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 1.2rem;
+    }
+
+    .hero-eyebrow {
+      font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.25em; text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(0,229,255,0.25);
+      padding: 0.3rem 1rem; border-radius: 100px;
+      background: rgba(0,229,255,0.06);
+    }
+
+    .hero-title {
+      font-family: var(--font-d);
+      font-size: clamp(4.5rem, 12vw, 9rem);
+      line-height: 0.9; letter-spacing: 0.06em;
+      color: #fff;
+      text-shadow: 0 0 60px rgba(0,229,255,0.25), 0 0 120px rgba(0,229,255,0.1);
+    }
+    .hero-title .accent-red { color: var(--accent2); text-shadow: 0 0 60px rgba(255,61,113,0.3); }
+
+    .hero-sub {
+      font-size: 0.9rem; color: rgba(255,255,255,0.5);
+      max-width: 420px; line-height: 1.7;
+    }
+
+    /* Scroll hint */
+    .scroll-hint {
+      position: absolute; bottom: 2.5rem; z-index: 3;
+      display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+      color: rgba(255,255,255,0.25); font-size: 0.65rem;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      animation: bob 2s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .scroll-hint::after {
+      content: ''; display: block;
+      width: 1px; height: 36px;
+      background: linear-gradient(to bottom, rgba(0,229,255,0.4), transparent);
+    }
+    @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(6px)} }
+
+    /* ══════════════════════════════════
+       STATS STRIP
+    ══════════════════════════════════ */
+    .stats-strip {
+      display: grid; grid-template-columns: repeat(4,1fr);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .stat-cell {
+      padding: 1.3rem 1.6rem;
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 0.25rem;
+    }
+    .stat-cell:last-child { border-right: none; }
+    .stat-cell .num {
+      font-family: var(--font-d);
+      font-size: 2.1rem; letter-spacing: 0.04em;
+      color: var(--accent); line-height: 1;
+    }
+    .stat-cell .lbl {
+      font-size: 0.68rem; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em;
+    }
+
+    /* ══════════════════════════════════
+       MAIN LAYOUT
+    ══════════════════════════════════ */
+    .layout {
+      max-width: 1200px; margin: 0 auto;
+      padding: 2.5rem 2rem;
+      display: grid; grid-template-columns: 340px 1fr;
+      gap: 1.5rem; align-items: start;
+    }
+
+    /* ══════════════════════════════════
+       PANEL (formulario)
+    ══════════════════════════════════ */
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      position: sticky; top: 80px;
+    }
+    .panel-header {
+      padding: 0.85rem 1.2rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.16em;
+      color: var(--muted);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .badge {
+      background: var(--accent); color: var(--bg);
+      font-size: 0.58rem; padding: 0.18rem 0.55rem;
+      border-radius: 100px; font-weight: 800; letter-spacing: 0.08em;
+    }
+    .badge.upd { background: var(--gold); color: #1a1000; }
+    .panel-body { padding: 1.2rem; display: flex; flex-direction: column; gap: 0.8rem; }
+
+    label {
+      display: flex; flex-direction: column; gap: 0.28rem;
+      font-size: 0.65rem; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    input, select, textarea {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text); font-family: var(--font-b);
+      font-size: 0.85rem; padding: 0.5rem 0.8rem;
+      transition: border-color .2s, box-shadow .2s; width: 100%;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0,229,255,0.1);
+    }
+    select option { background: #111520; }
+    textarea { resize: vertical; min-height: 65px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 0.4rem; padding: 0.6rem 1.1rem; border: none;
+      border-radius: 8px; cursor: pointer;
+      font-family: var(--font-b); font-size: 0.8rem; font-weight: 700;
+      transition: all .2s; letter-spacing: 0.02em;
+    }
+    .btn-primary { background: var(--accent); color: var(--bg); }
+    .btn-primary:hover { background: #33eaff; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,229,255,0.3); }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-danger { background: transparent; border: 1px solid rgba(255,61,113,0.3); color: var(--accent2); }
+    .btn-danger:hover { background: rgba(255,61,113,0.1); border-color: var(--accent2); }
+    .form-actions { display: flex; gap: 0.65rem; }
+
+    /* ══════════════════════════════════
+       LISTA DE TORNEOS
+    ══════════════════════════════════ */
+    .list-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1.1rem; flex-wrap: wrap; gap: 0.75rem;
+    }
+    .list-title {
+      font-family: var(--font-d); font-size: 1.5rem; letter-spacing: 0.07em;
+    }
+    .filter-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .filter-btn {
+      padding: 0.3rem 0.8rem; border-radius: 100px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--muted); font-size: 0.68rem; font-weight: 700;
+      cursor: pointer; transition: all .2s; font-family: var(--font-b);
+      text-transform: uppercase; letter-spacing: 0.09em;
+    }
+    .filter-btn.active, .filter-btn:hover {
+      border-color: var(--accent); color: var(--accent);
+      background: rgba(0,229,255,0.07);
+    }
+
+    /* Tarjetas */
+    .t-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.1rem 1.25rem;
+      margin-bottom: 0.7rem;
+      display: grid; grid-template-columns: 1fr auto;
+      gap: 0.75rem; align-items: start;
+      transition: border-color .2s, transform .2s, box-shadow .2s;
+      cursor: pointer;
+      animation: fadeUp .35s ease both;
+    }
+    @keyframes fadeUp { from { opacity:0; transform: translateY(10px); } }
+    .t-card:hover {
+      border-color: rgba(0,229,255,0.3);
+      transform: translateX(3px);
+      box-shadow: -3px 0 0 var(--accent), 0 4px 24px rgba(0,0,0,0.3);
+    }
+    .t-card.selected {
+      border-color: var(--accent);
+      background: rgba(0,229,255,0.04);
+      box-shadow: -3px 0 0 var(--accent);
+    }
+
+    .t-name { font-weight: 700; font-size: 0.92rem; margin-bottom: 0.3rem; }
+    .t-meta {
+      display: flex; flex-wrap: wrap; gap: 0.45rem;
+      font-size: 0.7rem; color: var(--muted); align-items: center;
+    }
+    .t-game {
+      background: rgba(0,229,255,0.1); color: var(--accent);
+      padding: 0.12rem 0.5rem; border-radius: 100px;
+      font-size: 0.65rem; font-weight: 700; white-space: nowrap;
+    }
+    .status-pill {
+      display: inline-block; padding: 0.12rem 0.55rem;
+      border-radius: 100px; font-size: 0.62rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap;
+    }
+    .s-próximo    { background: rgba(0,229,255,0.1);  color: var(--accent); }
+    .s-en_curso   { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .s-finalizado { background: rgba(255,255,255,0.06); color: var(--muted); }
+    .s-cancelado  { background: rgba(255,61,113,0.1); color: var(--accent2); }
+
+    .t-prize {
+      font-family: var(--font-d); font-size: 1.25rem;
+      color: var(--gold); letter-spacing: 0.04em; white-space: nowrap;
+    }
+    .t-prize small {
+      font-family: var(--font-b); font-size: 0.62rem;
+      color: var(--muted); display: block; text-align: right;
+    }
+    .t-actions { display: flex; gap: 0.4rem; margin-top: 0.55rem; }
+
+    .empty-state {
+      text-align: center; padding: 4rem 2rem; color: var(--muted);
+    }
+    .empty-icon { font-size: 2.5rem; margin-bottom: 0.75rem; opacity: 0.3; }
+
+    /* ══════════════════════════════════
+       TOAST
+    ══════════════════════════════════ */
+    #toast {
+      position: fixed; bottom: 2rem; right: 2rem; z-index: 999;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 0.85rem 1.25rem;
+      font-size: 0.8rem; max-width: 300px;
+      transform: translateY(120%); opacity: 0;
+      transition: all .35s cubic-bezier(.34,1.56,.64,1);
+      pointer-events: none; font-weight: 500;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.ok   { border-color: #22c55e66; color: #22c55e; }
+    #toast.err  { border-color: rgba(255,61,113,.5); color: var(--accent2); }
+
+    /* ══════════════════════════════════
+       FOOTER simple
+    ══════════════════════════════════ */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.5rem 2.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 0.72rem; color: var(--muted);
+    }
+    footer a { color: inherit; text-decoration: none; transition: color .2s; }
+    footer a:hover { color: var(--accent); }
+    .footer-links { display: flex; gap: 1.5rem; }
+
+    /* ══════════════════════════════════
+       RESPONSIVE
+    ══════════════════════════════════ */
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+      .stats-strip { grid-template-columns: repeat(2,1fr); }
+      .panel { position: static; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ────────────────────────────────────────
+     HEADER fijo
+──────────────────────────────────────────── -->
+<header>
+  <div class="logo">EsportsHub</div>
+  <div class="hub-status">
+    <div class="hub-dot" id="hub-dot"></div>
+    <span id="hub-label">Verificando…</span>
+  </div>
+</header>
+
+<!-- ────────────────────────────────────────
+     HERO — canvas interactivo de fondo
+──────────────────────────────────────────── -->
+<section class="hero-section" id="hero">
+  <canvas id="hero-canvas"></canvas>
+
+  <div class="hero-content">
+    <div class="hero-eyebrow">Sistema de Gestión · EPN FIS 2026</div>
+    <div class="hero-title">
+      ESPORTS<br><span class="accent-red">HUB</span>
+    </div>
+    <p class="hero-sub">
+      Crea y administra torneos de deportes electrónicos.<br>
+      Mueve el cursor para interactuar.
+    </p>
+  </div>
+
+  <div class="scroll-hint">scroll</div>
+</section>
+
+<!-- ────────────────────────────────────────
+     STATS
+──────────────────────────────────────────── -->
+<div class="stats-strip">
+  <div class="stat-cell">
+    <div class="num" id="s-upcoming">—</div>
+    <div class="lbl">Próximos</div>
+  </div>
+  <div class="stat-cell">
+    <div class="num" id="s-ongoing" style="color:#22c55e">—</div>
+    <div class="lbl">En Curso</div>
+  </div>
+  <div class="stat-cell">
+    <div class="num" id="s-finished" style="color:var(--muted)">—</div>
+    <div class="lbl">Finalizados</div>
+  </div>
+  <div class="stat-cell">
+    <div class="num" id="s-prize" style="color:var(--gold)">—</div>
+    <div class="lbl">Prize Pool Total</div>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────
+     MAIN LAYOUT
+──────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- FORMULARIO -->
+  <div class="panel" id="form-panel">
+    <div class="panel-header">
+      <span id="form-mode-label">Nuevo Torneo</span>
+      <span class="badge" id="form-badge">CREATE</span>
+    </div>
+    <div class="panel-body">
+      <input type="hidden" id="edit-id" />
+
+      <label>Nombre del Torneo
+        <input type="text" id="f-name" placeholder="EPN Open Series 2026" maxlength="80" />
+      </label>
+
+      <label>Videojuego
+        <select id="f-game">
+          <option value="">— selecciona —</option>
+        </select>
+      </label>
+
+      <label>Organizador
+        <input type="text" id="f-organizer" placeholder="EPN Esports Club" maxlength="60" />
+      </label>
+
+      <div class="row2">
+        <label>Inicio
+          <input type="date" id="f-date-start" />
+        </label>
+        <label>Fin
+          <input type="date" id="f-date-end" />
+        </label>
+      </div>
+
+      <div class="row2">
+        <label>Prize Pool (USD)
+          <input type="number" id="f-prize" min="0" step="100" placeholder="5000" />
+        </label>
+        <label>Equipos Máx.
+          <input type="number" id="f-teams" min="2" max="256" placeholder="16" />
+        </label>
+      </div>
+
+      <label>Estado
+        <select id="f-status">
+          <option value="próximo">Próximo</option>
+          <option value="en_curso">En Curso</option>
+          <option value="finalizado">Finalizado</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+      </label>
+
+      <label>Descripción
+        <textarea id="f-desc" placeholder="Detalles del torneo…" maxlength="400"></textarea>
+      </label>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="submitForm()" style="flex:1" id="btn-submit">
+          ＋ Crear Torneo
+        </button>
+        <button class="btn btn-ghost" onclick="resetForm()" title="Limpiar formulario">↺</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LISTA -->
+  <div>
+    <div class="list-header">
+      <div class="list-title">COMPETICIONES</div>
+      <div class="filter-row">
+        <button class="filter-btn active" onclick="setFilter('all',this)">Todos</button>
+        <button class="filter-btn" onclick="setFilter('próximo',this)">Próximos</button>
+        <button class="filter-btn" onclick="setFilter('en_curso',this)">En Curso</button>
+        <button class="filter-btn" onclick="setFilter('finalizado',this)">Finalizados</button>
+      </div>
+    </div>
+    <div id="tournament-list">
+      <div class="empty-state">
+        <div class="empty-icon">🎮</div>
+        <div>Cargando torneos…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────
+     FOOTER
+──────────────────────────────────────────── -->
+<footer>
+  <div>EsportsHub &copy; 2026 — EPN FIS</div>
+  <div class="footer-links">
+    <a href="/health" target="_blank">Health</a>
+    <a href="/tournaments/stats" target="_blank">Stats API</a>
+    <a href="http://localhost:3000" target="_blank">Event Hub</a>
+  </div>
+</footer>
+
+<div id="toast"></div>
+
+<!-- ════════════════════════════════════════
+     SCRIPTS
+════════════════════════════════════════ -->
+<script>
+/* ══════════════════════════════════════════════════════
+   HERO SHADER — canvas pantalla completa, reactivo al mouse
+   Paleta: cyan (#00e5ff) ↔ azul (#1a2dff) ↔ fucsia (#ff3d71)
+   Fondo oscuro (#080a0f) que emerge al hover
+══════════════════════════════════════════════════════ */
+(function initHeroShader() {
+  const canvas = document.getElementById('hero-canvas');
+  if (!canvas) return;
+
+  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  if (!gl) { canvas.style.background = 'linear-gradient(135deg,#080a0f,#0e1540,#1a0020)'; return; }
+
+  const dpr = Math.min(window.devicePixelRatio, 2);
+
+  function resize() {
+    const w = canvas.offsetWidth, h = canvas.offsetHeight;
+    canvas.width  = w * dpr;
+    canvas.height = h * dpr;
+    gl.viewport(0, 0, canvas.width, canvas.height);
+  }
+
+  const VS = `
+    attribute vec2 p;
+    void main(){ gl_Position = vec4(p, 0., 1.); }`;
+
+  /* Fragment shader:
+     — Tres ondas interferentes centradas en el cursor
+     — Paleta esports: cyan / azul eléctrico / fucsia
+     — uHover transiciona de fondo oscuro a color vivo */
+  const FS = `
+    precision highp float;
+    uniform vec2  uRes;
+    uniform vec2  uMouse;
+    uniform float uTime;
+    uniform float uHover;
+
+    /* Paleta esports: cyan → azul → fucsia */
+    vec3 esportsPal(float t) {
+      vec3 cyan   = vec3(0.00, 0.90, 1.00);
+      vec3 blue   = vec3(0.10, 0.18, 1.00);
+      vec3 fuchsia= vec3(1.00, 0.24, 0.44);
+      vec3 dark   = vec3(0.04, 0.05, 0.09);
+
+      vec3 ab = mix(dark,  blue,    smoothstep(0.0, 0.45, t));
+      vec3 bc = mix(blue,  cyan,    smoothstep(0.3, 0.70, t));
+      vec3 cd = mix(cyan,  fuchsia, smoothstep(0.6, 1.00, t));
+      return mix(mix(ab, bc, smoothstep(0.3,0.65,t)), cd, smoothstep(0.55,0.9,t));
+    }
+
+    void main(){
+      vec2 uv = gl_FragCoord.xy / uRes;
+      vec2 p  = uv - 0.5;
+      p.x    *= uRes.x / uRes.y;
+
+      vec2 m  = uMouse - 0.5;
+      m.x    *= uRes.x / uRes.y;
+
+      float d  = length(p - m);
+
+      /* Tres capas de ondas interferentes */
+      float w1 = sin(d * 9.0  - uTime * 1.6);
+      float w2 = sin((p.x + m.y) * 3.5 + uTime * 0.9);
+      float w3 = cos((p.y - m.x) * 3.5 - uTime * 0.7);
+      float field = (w1 + w2 + w3) * 0.333;
+
+      /* Halo brillante bajo el cursor */
+      float halo = exp(-d * 2.8) * uHover * 0.9;
+
+      float t = field * 0.5 + halo + uTime * 0.04;
+      vec3 col = esportsPal(fract(t));
+
+      /* Fondo oscuro base mezclado con el efecto según hover */
+      vec3 bg = vec3(0.031, 0.039, 0.059);
+      col = mix(bg, col, 0.18 + 0.82 * uHover);
+
+      /* Viñeta radial sutil */
+      float vig = 1.0 - smoothstep(0.4, 1.3, length(uv - 0.5) * 1.6);
+      col *= mix(0.6, 1.0, vig);
+
+      gl_FragColor = vec4(col, 1.0);
+    }`;
+
+  function compileShader(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+      console.error('Shader error:', gl.getShaderInfoLog(s));
+    return s;
+  }
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compileShader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compileShader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog); gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const pLoc = gl.getAttribLocation(prog, 'p');
+  gl.enableVertexAttribArray(pLoc);
+  gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const uRes   = gl.getUniformLocation(prog, 'uRes');
+  const uMouse = gl.getUniformLocation(prog, 'uMouse');
+  const uTime  = gl.getUniformLocation(prog, 'uTime');
+  const uHover = gl.getUniformLocation(prog, 'uHover');
+
+  let mx = 0.5, my = 0.5, tmx = 0.5, tmy = 0.5;
+  let hover = 0, hoverT = 0;
+
+  const hero = document.getElementById('hero');
+  hero.addEventListener('mousemove', e => {
+    const r = hero.getBoundingClientRect();
+    tmx = (e.clientX - r.left) / r.width;
+    tmy = 1 - (e.clientY - r.top) / r.height;
+  });
+  hero.addEventListener('mouseenter', () => hoverT = 1);
+  hero.addEventListener('mouseleave', () => hoverT = 0);
+
+  resize();
+  window.addEventListener('resize', resize);
+
+  const t0 = performance.now();
+  function frame() {
+    mx    += (tmx - mx)    * 0.07;
+    my    += (tmy - my)    * 0.07;
+    hover += (hoverT - hover) * 0.05;
+
+    gl.uniform2f(uRes,   canvas.width, canvas.height);
+    gl.uniform2f(uMouse, mx, my);
+    gl.uniform1f(uTime,  (performance.now() - t0) / 1000);
+    gl.uniform1f(uHover, hover);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* ══════════════════════════════════════════════════════
+   CRUD APP
+══════════════════════════════════════════════════════ */
+let tournaments = [];
+let currentFilter = 'all';
+let editingId = null;
+const BASE = '';
+
+function toast(msg, type = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(window._tid);
+  window._tid = setTimeout(() => { el.className = ''; }, 3200);
+}
+
+async function checkHealth() {
+  try {
+    const r = await fetch(`${BASE}/health`);
+    const d = await r.json();
+    const dot = document.getElementById('hub-dot');
+    const lbl = document.getElementById('hub-label');
+    if (d.hub === 'connected') {
+      dot.className = 'hub-dot online';
+      lbl.textContent = 'Hub conectado';
+    } else {
+      dot.className = 'hub-dot offline';
+      lbl.textContent = 'Hub offline';
+    }
+  } catch {
+    document.getElementById('hub-dot').className = 'hub-dot offline';
+    document.getElementById('hub-label').textContent = 'Sin conexión';
+  }
+}
+
+async function loadGames() {
+  try {
+    const r = await fetch(`${BASE}/tournaments/games`);
+    const games = await r.json();
+    const sel = document.getElementById('f-game');
+    sel.innerHTML = '<option value="">— selecciona —</option>';
+    games.forEach(g => {
+      const o = document.createElement('option');
+      o.value = o.textContent = g;
+      sel.appendChild(o);
+    });
+  } catch {}
+}
+
+async function loadStats() {
+  try {
+    const r = await fetch(`${BASE}/tournaments/stats`);
+    const s = await r.json();
+    document.getElementById('s-upcoming').textContent = s.upcoming ?? 0;
+    document.getElementById('s-ongoing').textContent  = s.ongoing  ?? 0;
+    document.getElementById('s-finished').textContent = s.finished ?? 0;
+    const prize = (s.totalPrize ?? 0).toLocaleString('en-US', {
+      style: 'currency', currency: 'USD', maximumFractionDigits: 0
+    });
+    document.getElementById('s-prize').textContent = prize;
+  } catch {}
+}
+
+async function loadTournaments() {
+  try {
+    const r = await fetch(`${BASE}/tournaments`);
+    tournaments = await r.json();
+    renderList();
+  } catch { toast('Error al cargar torneos', 'err'); }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function renderList() {
+  const container = document.getElementById('tournament-list');
+  const list = currentFilter === 'all'
+    ? tournaments
+    : tournaments.filter(t => t.status === currentFilter);
+
+  if (!list.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🏆</div>
+        <div>No hay torneos${currentFilter !== 'all' ? ' con ese estado' : ''}.<br>
+        <span style="font-size:0.8rem;margin-top:.4rem;display:block">Usa el formulario para crear uno.</span></div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = list.map((t, i) => {
+    const prize = Number(t.prize_pool).toLocaleString('en-US', {
+      style: 'currency', currency: 'USD', maximumFractionDigits: 0
+    });
+    const ds = t.date_start
+      ? new Date(t.date_start).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' })
+      : '—';
+    const de = t.date_end
+      ? new Date(t.date_end).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '—';
+    const sel = editingId === t.id ? ' selected' : '';
+
+    return `
+    <div class="t-card${sel}" onclick="selectCard('${t.id}')" style="animation-delay:${i * 0.05}s">
+      <div>
+        <div class="t-name">${esc(t.name)}</div>
+        <div class="t-meta">
+          <span class="t-game">${esc(t.game)}</span>
+          <span class="status-pill s-${t.status}">${t.status.replace('_', ' ')}</span>
+          <span>📅 ${ds} → ${de}</span>
+          <span>👥 ${t.max_teams} equipos</span>
+          <span style="opacity:.4;font-size:.65rem">${t.id}</span>
+        </div>
+        ${t.description ? `<div style="font-size:.73rem;color:var(--muted);margin-top:.35rem;line-height:1.5">${esc(t.description)}</div>` : ''}
+        <div class="t-actions">
+          <button class="btn btn-ghost" style="font-size:.7rem;padding:.3rem .75rem"
+            onclick="event.stopPropagation();startEdit('${t.id}')">✏️ Editar</button>
+          <button class="btn btn-danger" style="font-size:.7rem;padding:.3rem .75rem"
+            onclick="event.stopPropagation();deleteTournament('${t.id}')">🗑 Eliminar</button>
+        </div>
+      </div>
+      <div style="text-align:right;min-width:90px">
+        <div class="t-prize">${prize}<small>prize pool</small></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function setFilter(f, btn) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderList();
+}
+
+function selectCard(id) {
+  if (editingId === id) { resetForm(); return; }
+  startEdit(id);
+}
+
+function startEdit(id) {
+  const t = tournaments.find(x => x.id === id);
+  if (!t) return;
+  editingId = id;
+
+  document.getElementById('edit-id').value      = t.id;
+  document.getElementById('f-name').value        = t.name;
+  document.getElementById('f-game').value        = t.game;
+  document.getElementById('f-organizer').value  = t.organizer;
+  document.getElementById('f-date-start').value = t.date_start?.slice(0, 10) || '';
+  document.getElementById('f-date-end').value   = t.date_end?.slice(0, 10)   || '';
+  document.getElementById('f-prize').value       = t.prize_pool;
+  document.getElementById('f-teams').value       = t.max_teams;
+  document.getElementById('f-status').value      = t.status;
+  document.getElementById('f-desc').value        = t.description;
+
+  document.getElementById('form-mode-label').textContent = 'Editar Torneo';
+  const badge = document.getElementById('form-badge');
+  badge.textContent = 'UPDATE'; badge.className = 'badge upd';
+  document.getElementById('btn-submit').textContent = '✔ Guardar Cambios';
+
+  document.getElementById('form-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  renderList();
+}
+
+function resetForm() {
+  editingId = null;
+  document.getElementById('edit-id').value = '';
+  ['f-name', 'f-organizer', 'f-prize', 'f-teams', 'f-desc'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('f-game').value   = '';
+  document.getElementById('f-status').value = 'próximo';
+  document.getElementById('f-date-start').value = '';
+  document.getElementById('f-date-end').value   = '';
+  document.getElementById('form-mode-label').textContent = 'Nuevo Torneo';
+  const badge = document.getElementById('form-badge');
+  badge.textContent = 'CREATE'; badge.className = 'badge';
+  document.getElementById('btn-submit').textContent = '＋ Crear Torneo';
+  renderList();
+}
+
+async function submitForm() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    name:        document.getElementById('f-name').value.trim(),
+    game:        document.getElementById('f-game').value,
+    organizer:   document.getElementById('f-organizer').value.trim(),
+    date_start:  document.getElementById('f-date-start').value,
+    date_end:    document.getElementById('f-date-end').value,
+    prize_pool:  Number(document.getElementById('f-prize').value) || 0,
+    max_teams:   Number(document.getElementById('f-teams').value) || 8,
+    status:      document.getElementById('f-status').value,
+    description: document.getElementById('f-desc').value.trim(),
+  };
+
+  const url    = id ? `${BASE}/tournaments/${id}` : `${BASE}/tournaments`;
+  const method = id ? 'PUT' : 'POST';
+
+  try {
+    const r = await fetch(url, {
+      method, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast(d.error || 'Error en la solicitud', 'err'); return; }
+    toast(id ? `"${d.name}" actualizado ✔` : `"${d.name}" creado 🎮`);
+    resetForm();
+    await Promise.all([loadTournaments(), loadStats()]);
+  } catch { toast('Error de red', 'err'); }
+}
+
+async function deleteTournament(id) {
+  const t = tournaments.find(x => x.id === id);
+  if (!t || !confirm(`¿Eliminar "${t.name}"?`)) return;
+  try {
+    const r = await fetch(`${BASE}/tournaments/${id}`, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json(); toast(d.error, 'err'); return; }
+    toast('Torneo eliminado 🗑');
+    if (editingId === id) resetForm();
+    await Promise.all([loadTournaments(), loadStats()]);
+  } catch { toast('Error de red', 'err'); }
+}
+
+/* ── Init ── */
+(async function init() {
+  await Promise.all([checkHealth(), loadGames(), loadTournaments(), loadStats()]);
+  setInterval(checkHealth, 30_000);
+})();
+</script>
+</body>
+</html>
