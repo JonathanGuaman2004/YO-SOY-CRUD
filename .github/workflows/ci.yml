@@ -35,18 +35,18 @@ jobs:
         working-directory: epn-event-manager
         run: npm test
 
-      - name: Instalar dependencias CRUD Misiones
+      - name: Instalar dependencias CRUD externo
         working-directory: missions-crud
         run: npm ci
 
-      - name: Check CRUD Misiones
+      - name: Check CRUD externo
         working-directory: missions-crud
         run: npm run check
 
-      - name: Lint CRUD Misiones
+      - name: Lint CRUD externo
         working-directory: missions-crud
         run: npm run lint
 
-      - name: Pruebas CRUD Misiones
+      - name: Pruebas CRUD externo
         working-directory: missions-crud
         run: npm test

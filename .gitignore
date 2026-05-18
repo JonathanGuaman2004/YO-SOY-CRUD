@@ -5,3 +5,6 @@
 .vscode/
 missions-crud/
 "@ | Set-Content .gitignore
+# SQLite temporary files
+*.sqlite-shm
+*.sqlite-wal
