@@ -14,8 +14,6 @@ type StoredEvent = Record<string, unknown> & {
 
 @Injectable()
 export class EventsService {
-  private readonly allowedActions = ['CREATE', 'UPDATE', 'DELETE', 'QUERY'];
-
   constructor(
     @InjectRepository(CreateEventEntity)
     private readonly createRepo: Repository<CreateEventEntity>,
@@ -30,8 +28,8 @@ export class EventsService {
   async registerEvent(
     dto: CreateEventDto,
   ): Promise<{ ok: boolean; action: string }> {
-    const action = this.normalizeAction(dto.action);
-    this.validateDto(dto, action);
+    const action = dto.action;
+    this.validatePayloadForAction(dto, action);
 
     const payloadStr = JSON.stringify(dto.payload ?? {});
     const eventDate = new Date().toISOString();
@@ -80,12 +78,75 @@ export class EventsService {
     return { ok: true, action };
   }
 
+  //Evita repetición de código para obtener eventos de las 4 tablas, y normalizarlos a un formato común para ordenarlos por fecha
   async findAll(): Promise<object[]> {
     const creates = await this.createRepo.find();
     const updates = await this.updateRepo.find();
     const deletes = await this.deleteRepo.find();
     const queries = await this.queryRepo.find();
 
+    return this.normalizeEvents(creates, updates, deletes, queries);
+  }
+
+  async findBySource(source: string): Promise<object[]> {
+    const safeSource = this.clean(source);
+    if (!safeSource) throw new BadRequestException('source inválido');
+
+    const creates = await this.createRepo.findBy({ source: safeSource });
+    const updates = await this.updateRepo.findBy({ source: safeSource });
+    const deletes = await this.deleteRepo.findBy({ source: safeSource });
+    const queries = await this.queryRepo.findBy({ source: safeSource });
+
+    return this.normalizeEvents(creates, updates, deletes, queries);
+  }
+
+  //
+  async findByEntity(entity: string): Promise<object[]> {
+    const safeEntity = this.clean(entity);
+    if (!safeEntity) throw new BadRequestException('entity inválido');
+
+    const creates = await this.createRepo.findBy({ entity: safeEntity });
+    const updates = await this.updateRepo.findBy({ entity: safeEntity });
+    const deletes = await this.deleteRepo.findBy({ entity: safeEntity });
+    const queries = await this.queryRepo.findBy({ entity: safeEntity });
+
+    return this.normalizeEvents(creates, updates, deletes, queries);
+  }
+
+  async getStats(): Promise<object> {
+    const createCount = await this.createRepo.count();
+    const updateCount = await this.updateRepo.count();
+    const deleteCount = await this.deleteRepo.count();
+    const queryCount = await this.queryRepo.count();
+
+    return {
+      create: createCount,
+      update: updateCount,
+      delete: deleteCount,
+      query: queryCount,
+      total: createCount + updateCount + deleteCount + queryCount,
+    };
+  }
+
+  private validatePayloadForAction(dto: CreateEventDto, action: string): void {
+    if (
+      action !== 'QUERY' &&
+      (!dto.payload || Object.keys(dto.payload).length === 0)
+    ) {
+      throw new BadRequestException(
+        'payload es obligatorio para CREATE, UPDATE y DELETE.',
+      );
+    }
+  }
+
+  // Métodos privados
+  // Función privada para normalizar eventos de diferentes tablas en un formato común para ordenarlos por fecha
+  private normalizeEvents(
+    creates: CreateEventEntity[],
+    updates: UpdateEventEntity[],
+    deletes: DeleteEventEntity[],
+    queries: QueryEventEntity[],
+  ): StoredEvent[] {
     const merged: StoredEvent[] = [
       ...creates.map((e) => ({
         ...e,
@@ -114,80 +175,6 @@ export class EventsService {
       const tb = Date.parse(String(b._eventDate ?? '')) || 0;
       return tb - ta;
     });
-  }
-
-  async findBySource(source: string): Promise<object[]> {
-    const safeSource = this.clean(source);
-    if (!safeSource) throw new BadRequestException('source inválido');
-    const creates = await this.createRepo.findBy({ source: safeSource });
-    const updates = await this.updateRepo.findBy({ source: safeSource });
-    const deletes = await this.deleteRepo.findBy({ source: safeSource });
-    const queries = await this.queryRepo.findBy({ source: safeSource });
-    return [...creates, ...updates, ...deletes, ...queries];
-  }
-
-  async findByEntity(entity: string): Promise<object[]> {
-    const safeEntity = this.clean(entity);
-    if (!safeEntity) throw new BadRequestException('entity inválido');
-    const creates = await this.createRepo.findBy({ entity: safeEntity });
-    const updates = await this.updateRepo.findBy({ entity: safeEntity });
-    const deletes = await this.deleteRepo.findBy({ entity: safeEntity });
-    const queries = await this.queryRepo.findBy({ entity: safeEntity });
-    return [...creates, ...updates, ...deletes, ...queries];
-  }
-
-  async getStats(): Promise<object> {
-    const createCount = await this.createRepo.count();
-    const updateCount = await this.updateRepo.count();
-    const deleteCount = await this.deleteRepo.count();
-    const queryCount = await this.queryRepo.count();
-
-    return {
-      create: createCount,
-      update: updateCount,
-      delete: deleteCount,
-      query: queryCount,
-      total: createCount + updateCount + deleteCount + queryCount,
-    };
-  }
-
-  private normalizeAction(action?: string): string {
-    const normalized = this.clean(action ?? '').toUpperCase();
-    if (!this.allowedActions.includes(normalized)) {
-      throw new BadRequestException(
-        'Acción no permitida. Use CREATE, UPDATE, DELETE o QUERY.',
-      );
-    }
-    return normalized;
-  }
-
-  private validateDto(dto: CreateEventDto, action: string): void {
-    const requiredFields = [dto.source, dto.entity, dto.title];
-    if (requiredFields.some((field) => !this.clean(field))) {
-      throw new BadRequestException(
-        'source, entity, action y title son obligatorios.',
-      );
-    }
-
-    if (this.clean(dto.source).length > 60)
-      throw new BadRequestException('source no puede superar 60 caracteres.');
-    if (this.clean(dto.entity).length > 60)
-      throw new BadRequestException('entity no puede superar 60 caracteres.');
-    if (this.clean(dto.title).length > 120)
-      throw new BadRequestException('title no puede superar 120 caracteres.');
-    if (this.clean(dto.description ?? '').length > 500)
-      throw new BadRequestException(
-        'description no puede superar 500 caracteres.',
-      );
-
-    if (
-      action !== 'QUERY' &&
-      (!dto.payload || Object.keys(dto.payload).length === 0)
-    ) {
-      throw new BadRequestException(
-        'payload es obligatorio para CREATE, UPDATE y DELETE.',
-      );
-    }
   }
 
   // private clean(value: unknown): string {

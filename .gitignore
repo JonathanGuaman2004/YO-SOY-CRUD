@@ -4,3 +4,6 @@
 .vscode/
 missions-crud/
 *.yaml
+# SQLite temporary files
+*.sqlite-shm
+*.sqlite-wal
