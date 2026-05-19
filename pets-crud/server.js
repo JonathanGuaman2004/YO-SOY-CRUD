@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const EVENT_MANAGER_URL = process.env.EVENT_MANAGER_URL || 'http://localhost:3000/events';
 const EVENT_MANAGER_HEALTH_URL = process.env.EVENT_MANAGER_HEALTH_URL || 'http://localhost:3000/health';
 
-const PORT = process.env.PORT || 4001;
+const PORT = process.env.PORT || 4002;
 
 const DB_DIR = path.join(__dirname, 'db');
 const DB_PATH = process.env.PETS_DB_PATH || path.join(DB_DIR, 'pets.sqlite');
