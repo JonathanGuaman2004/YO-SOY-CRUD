@@ -1,4 +1,4 @@
-// Empezamos vacío, los datos se cargarán desde el servidor NestJS
+// Catálogo en memoria; se reconstruye desde el Event Manager al cargar
 let catalogo = [];
 let idCounter = 1;
 let editandoId = null;
@@ -7,155 +7,236 @@ let editandoId = null;
 const form = document.getElementById('audioForm');
 const tabla = document.getElementById('tablaAudios');
 const btnSubmit = form.querySelector('button[type="submit"]');
-const btnActualizar = document.getElementById('btnActualizar'); // 🚀 REFERENCIA AL NUEVO BOTÓN
+const btnActualizar = document.getElementById('btnActualizar');
 
-// URL de tu EPN Event Manager
+// URL base del Event Manager
 const EVENT_MANAGER_URL = 'http://localhost:3000/events';
 
-// Cargar datos desde el servidor al iniciar
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function tryParsePayload(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'object') return raw;
+    try { return JSON.parse(raw); } catch { return null; }
+}
+
+function truncate(str, max) {
+    return String(str ?? '').substring(0, max);
+}
+
+// ─── Cargar datos al iniciar / refrescar ─────────────────────────────────────
+
 async function cargarDesdeServidor() {
     try {
         const response = await fetch(EVENT_MANAGER_URL);
-        if (response.ok) {
-            const eventos = await response.json();
-            
-            // Filtramos solo los eventos de creación de nuestro frontend
-            catalogo = eventos
-                .filter(ev => ev._table === 'create_events' && ev.source === 'audiohub-frontend')
-                .map(ev => {
-                    const data = JSON.parse(ev.payload);
-                    return {
-                        id: data.id, 
-                        tipo: ev.entity,
-                        titulo: data.titulo,
-                        autor: data.autor
-                    };
-                });
-            
-            if (catalogo.length > 0) {
-                idCounter = Math.max(...catalogo.map(a => a.id)) + 1;
-            }
-            
-            renderizarTabla();
-            console.log("✅ Datos recuperados desde el servidor NestJS");
+        if (!response.ok) {
+            console.warn('El Event Manager respondió con error:', response.status);
+            return;
         }
+
+        const eventos = await response.json();
+        if (!Array.isArray(eventos)) return;
+
+        // 1. CREATEs del audiohub
+        const creados = eventos
+            .filter(ev => ev._table === 'create_events' && ev.source === 'audiohub-frontend')
+            .map(ev => {
+                const data = tryParsePayload(ev.payload);
+                if (!data) return null;
+                const id = Number(data.id);
+                if (!Number.isFinite(id)) return null;
+                const titulo = data.titulo || data.title || '';
+                const autor  = data.autor  || data.author || '';
+                const tipo   = data.tipo   || ev.entity   || 'Cancion';
+                if (!titulo || !autor) return null;
+                return { id, tipo, titulo, autor };
+            })
+            .filter(Boolean);
+
+        // 2. IDs eliminados
+        const eliminados = new Set(
+            eventos
+                .filter(ev => ev._table === 'delete_events' && ev.source === 'audiohub-frontend')
+                .map(ev => {
+                    const data = tryParsePayload(ev.payload);
+                    return data ? Number(data.id) : NaN;
+                })
+                .filter(Number.isFinite)
+        );
+
+        // 3. UPDATEs más recientes por id (los eventos vienen ordenados desc por fecha)
+        const actualizaciones = new Map();
+        eventos
+            .filter(ev => ev._table === 'update_events' && ev.source === 'audiohub-frontend')
+            .forEach(ev => {
+                const data = tryParsePayload(ev.payload);
+                if (!data) return;
+                const id = Number(data.id);
+                if (!Number.isFinite(id) || actualizaciones.has(id)) return;
+                actualizaciones.set(id, data);
+            });
+
+        // 4. Catálogo final: CREATE - DELETE + apply UPDATE
+        catalogo = creados
+            .filter(item => !eliminados.has(item.id))
+            .map(item => {
+                const upd = actualizaciones.get(item.id);
+                if (!upd) return item;
+                return {
+                    id: item.id,
+                    tipo:   upd.tipo   || upd.entity  || item.tipo,
+                    titulo: upd.titulo || upd.title   || item.titulo,
+                    autor:  upd.autor  || upd.author  || item.autor,
+                };
+            });
+
+        // 5. idCounter seguro basado en TODOS los ids vistos
+        const todosLosIds = eventos
+            .filter(ev => ev.source === 'audiohub-frontend')
+            .map(ev => { const d = tryParsePayload(ev.payload); return d ? Number(d.id) : NaN; })
+            .filter(Number.isFinite);
+
+        idCounter = todosLosIds.length > 0 ? Math.max(...todosLosIds) + 1 : 1;
+
+        renderizarTabla();
+        console.log('Catálogo reconstruido:', catalogo.length, 'elemento(s). Próximo id:', idCounter);
+
     } catch (error) {
-        console.error("❌ No se pudo conectar con el servidor para recuperar datos", error);
+        console.error('Error al cargar desde el servidor:', error);
     }
 }
 
-// Enviar eventos al Backend (CREATE, UPDATE, DELETE, QUERY)
+// ─── Notificar al Event Manager ──────────────────────────────────────────────
+
 async function notificarEventoEPN(accion, item) {
     const payloadEvento = {
-        source: "audiohub-frontend",
-        entity: item.tipo,
-        action: accion,
-        title: `Se ejecutó ${accion} en el catálogo`,
-        description: `El usuario realizó una acción de ${accion} sobre el título: ${item.titulo}`,
-        payload: item 
+        source:      'audiohub-frontend',
+        entity:      truncate(item.tipo || 'Audio', 60),
+        action:      accion,
+        title:       truncate('[' + accion + '] ' + (item.titulo || ''), 120),
+        description: truncate('Accion ' + accion + ' sobre: ' + (item.titulo || '') + ' - ' + (item.autor || ''), 500),
+        payload: {
+            id:     item.id,
+            tipo:   item.tipo   || 'Cancion',
+            titulo: item.titulo || '',
+            autor:  item.autor  || '',
+        },
     };
 
     try {
         const response = await fetch(EVENT_MANAGER_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payloadEvento)
+            body: JSON.stringify(payloadEvento),
         });
-        if(response.ok) {
-            console.log(`✅ Evento ${accion} notificado con éxito.`);
+
+        if (response.ok) {
+            console.log('Evento ' + accion + ' guardado en el Event Manager.');
+        } else {
+            const err = await response.json().catch(() => ({}));
+            console.warn('Evento ' + accion + ' rechazado (' + response.status + '):', err);
         }
     } catch (error) {
-        console.error('❌ Error de conexión.', error);
+        console.error('No se pudo conectar con el Event Manager:', error);
     }
 }
 
-// Renderizar la tabla (READ)
+// ─── Renderizar tabla ─────────────────────────────────────────────────────────
+
 function renderizarTabla() {
     tabla.innerHTML = '';
-    catalogo.forEach(item => {
-        tabla.innerHTML += `
-            <tr>
-                <td>${item.tipo === 'Cancion' ? '🎵 Canción' : '🎙️ Podcast'}</td>
-                <td>${item.titulo}</td>
-                <td>${item.autor}</td>
-                <td>
-                    <button class="btn btn-sm btn-warning me-1" onclick="prepararEdicion(${item.id})">Editar</button>
-                    <button class="btn btn-sm btn-danger" onclick="eliminarAudio(${item.id})">Eliminar</button>
-                </td>
-            </tr>
-        `;
+
+    if (catalogo.length === 0) {
+        tabla.innerHTML =
+            '<tr><td colspan="4" class="text-center py-5">' +
+            '<div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-4 empty-state-icon">' +
+            '<i class="bi bi-music-note-list text-white-50" style="font-size:2.5rem;"></i></div>' +
+            '<h5 class="text-white fw-bold">Tu biblioteca está vacía</h5>' +
+            '<p class="text-white-50 mb-0">Añade tu primera canción o podcast desde el panel lateral.</p>' +
+            '</td></tr>';
+        return;
+    }
+
+    catalogo.forEach(function(item) {
+        tabla.innerHTML +=
+            '<tr>' +
+            '<td>' + (item.tipo === 'Cancion' ? '🎵 Canción' : '🎙️ Podcast') + '</td>' +
+            '<td>' + item.titulo + '</td>' +
+            '<td>' + item.autor + '</td>' +
+            '<td class="text-end">' +
+            '<button class="btn btn-sm btn-warning me-1" onclick="prepararEdicion(' + item.id + ')">Editar</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="eliminarAudio(' + item.id + ')">Eliminar</button>' +
+            '</td></tr>';
     });
 }
 
-// 🚀 NUEVO: Lógica del botón "Actualizar Lista" (Evento QUERY)
-btnActualizar.addEventListener('click', async () => {
-    // 1. Recargamos los datos desde la base
+// ─── Botón Refrescar ──────────────────────────────────────────────────────────
+
+btnActualizar.addEventListener('click', async function() {
     await cargarDesdeServidor();
-    
-    // 2. Notificamos al servidor que hicimos una consulta general
-    notificarEventoEPN('QUERY', { 
-        tipo: 'ConsultaGeneral', 
-        titulo: 'Todo el catálogo', 
-        autor: 'Usuario Local' 
-    });
+    notificarEventoEPN('QUERY', { id: 0, tipo: 'Cancion', titulo: 'Todo el catalogo', autor: 'Usuario' });
 });
 
-// Preparar el formulario para Editar (UPDATE)
+// ─── Preparar edición ─────────────────────────────────────────────────────────
+
 window.prepararEdicion = function(id) {
-    const item = catalogo.find(a => a.id === id);
-    
-    document.getElementById('tipo').value = item.tipo;
+    var item = catalogo.find(function(a) { return a.id === id; });
+    if (!item) return;
+
+    document.getElementById('tipo').value   = item.tipo;
     document.getElementById('titulo').value = item.titulo;
-    document.getElementById('autor').value = item.autor;
-    
+    document.getElementById('autor').value  = item.autor;
+
     editandoId = id;
     btnSubmit.textContent = 'Actualizar';
-    btnSubmit.classList.replace('btn-primary', 'btn-warning');
+    btnSubmit.classList.remove('btn-neon');
+    btnSubmit.classList.add('btn-warning');
 };
 
-// Guardar o Actualizar registro (CREATE / UPDATE)
-form.addEventListener('submit', (e) => {
+// ─── Guardar / actualizar ─────────────────────────────────────────────────────
+
+form.addEventListener('submit', async function(e) {
     e.preventDefault();
 
-    const tipoActual = document.getElementById('tipo').value;
-    const tituloActual = document.getElementById('titulo').value;
-    const autorActual = document.getElementById('autor').value;
+    var tipoActual   = document.getElementById('tipo').value;
+    var tituloActual = document.getElementById('titulo').value.trim();
+    var autorActual  = document.getElementById('autor').value.trim();
+
+    if (!tituloActual || !autorActual) {
+        alert('Título y autor son obligatorios');
+        return;
+    }
 
     if (editandoId === null) {
-        // MODO CREATE
-        const nuevoAudio = {
-            id: idCounter++,
-            tipo: tipoActual,
-            titulo: tituloActual,
-            autor: autorActual
-        };
+        var nuevoAudio = { id: idCounter++, tipo: tipoActual, titulo: tituloActual, autor: autorActual };
         catalogo.push(nuevoAudio);
-        notificarEventoEPN('CREATE', nuevoAudio);
+        await notificarEventoEPN('CREATE', nuevoAudio);
     } else {
-        // MODO UPDATE
-        const index = catalogo.findIndex(a => a.id === editandoId);
-        catalogo[index].tipo = tipoActual;
-        catalogo[index].titulo = tituloActual;
-        catalogo[index].autor = autorActual;
-        
-        notificarEventoEPN('UPDATE', catalogo[index]);
-        
+        var index = catalogo.findIndex(function(a) { return a.id === editandoId; });
+        if (index !== -1) {
+            catalogo[index] = { id: catalogo[index].id, tipo: tipoActual, titulo: tituloActual, autor: autorActual };
+            await notificarEventoEPN('UPDATE', catalogo[index]);
+        }
         editandoId = null;
-        btnSubmit.textContent = 'Guardar';
-        btnSubmit.classList.replace('btn-warning', 'btn-primary');
+        btnSubmit.textContent = 'Guardar en Biblioteca';
+        btnSubmit.classList.remove('btn-warning');
+        btnSubmit.classList.add('btn-neon');
     }
 
     renderizarTabla();
-    form.reset(); 
+    form.reset();
 });
 
-// Eliminar registro (DELETE)
+// ─── Eliminar ─────────────────────────────────────────────────────────────────
+
 window.eliminarAudio = function(id) {
-    const itemEliminado = catalogo.find(a => a.id === id);
-    catalogo = catalogo.filter(a => a.id !== id);
+    var item = catalogo.find(function(a) { return a.id === id; });
+    if (!item) return;
+    if (!confirm('¿Eliminar "' + item.titulo + '"?')) return;
+    catalogo = catalogo.filter(function(a) { return a.id !== id; });
     renderizarTabla();
-    notificarEventoEPN('DELETE', itemEliminado);
+    notificarEventoEPN('DELETE', item);
 };
 
-// LLAMADA INICIAL: Recuperar datos automáticamente al abrir la web (sin enviar evento QUERY)
+// ─── Inicio ───────────────────────────────────────────────────────────────────
 cargarDesdeServidor();

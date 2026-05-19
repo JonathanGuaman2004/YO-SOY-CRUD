@@ -1,7 +1,7 @@
 {
-  "name": "esports-crud",
+  "name": "pets-crud",
   "version": "1.0.0",
-  "description": "Sistema de Gestión de Torneos de Deportes Electrónicos (Esports)",
+  "description": "Sistema de gestión de mascotas conectado al epn-event-manager",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,7 +10,12 @@
     "lint": "eslint .",
     "test": "node --test test/*.test.js"
   },
-  "keywords": ["esports", "torneos", "crud"],
+  "keywords": [
+    "crud",
+    "pets",
+    "mascotas",
+    "event-manager"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
