@@ -1,7 +1,6 @@
-@"
 **/node_modules/
 **/dist/
 **/*.sqlite
 .vscode/
 missions-crud/
-"@ | Set-Content .gitignore
+*.yaml

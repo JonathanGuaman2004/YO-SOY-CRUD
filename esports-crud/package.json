@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "check": "node --check server.js",
+    "lint": "eslint .",
     "test": "node --test test/*.test.js"
   },
   "keywords": ["esports", "torneos", "crud"],
@@ -19,5 +21,10 @@
   },
   "engines": {
     "node": ">=22.5.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.3.0",
+    "globals": "^17.6.0"
   }
 }
