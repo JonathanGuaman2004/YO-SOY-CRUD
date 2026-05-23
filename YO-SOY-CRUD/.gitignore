@@ -1,0 +1,38 @@
+# Dependencies
+**/node_modules/
+**/pnpm-lock.yaml
+**/package-lock.json
+**/package.json
+
+# Build output
+**/dist/
+
+# Database
+**/*.sqlite
+**/*.sqlite-shm
+**/*.sqlite-wal
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# YAML (optional - descomenta si no necesitas archivos yaml en git)
+# *.yaml
+esports-crud/db/esports.sqlite-shm
+esports-crud/db/esports.sqlite-wal
+esports-crud/db/esports.sqlite-shm
+esports-crud/db/esports.sqlite-wal
+
+
+coverage
+db
+.git
+.env
