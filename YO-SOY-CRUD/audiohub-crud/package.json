@@ -1,0 +1,23 @@
+{
+  "name": "audiohub-crud",
+  "version": "1.0.0",
+  "description": "AudioHub — Gestión de canciones y podcasts con SQLite y Event Manager",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/audio-validation.test.js",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "globals": "^16.0.0"
+  }
+}

@@ -11,15 +11,12 @@
 
     <style>
         :root {
-            /* Fondo base un poco más oscuro para máximo contraste */
             --bg-dark: #09090c; 
             --card-bg: rgba(22, 22, 30, 0.65);
             --neon-gradient: linear-gradient(135deg, #b040ff 0%, #3e00cf 100%);
             --neon-glow: rgba(176, 64, 255, 0.4);
-            
-            /* Colores de texto ajustados para legibilidad perfecta */
             --text-main: #ffffff;
-            --text-secondary: #c8c8e6; /* Gris azulado muy claro para etiquetas */
+            --text-secondary: #c8c8e6;
             --input-bg: rgba(0, 0, 0, 0.4);
         }
 
@@ -39,9 +36,7 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        .animate-up {
-            animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
+        .animate-up { animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
         .header-brand {
             background: var(--neon-gradient);
@@ -50,6 +45,17 @@
             font-weight: 700;
             letter-spacing: -1px;
         }
+
+        .hub-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #555;
+            margin-right: 6px;
+            transition: background 0.4s, box-shadow 0.4s;
+        }
+        .hub-dot.online  { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+        .hub-dot.offline { background: #ef4444; box-shadow: 0 0 6px #ef444488; }
 
         .glass-card {
             background: var(--card-bg);
@@ -62,11 +68,8 @@
             transition: border-color 0.3s ease;
         }
 
-        .glass-card:hover {
-            border-color: rgba(255, 255, 255, 0.15);
-        }
+        .glass-card:hover { border-color: rgba(255, 255, 255, 0.15); }
 
-        /* --- CORRECCIÓN DE INPUTS Y ETIQUETAS --- */
         .form-label {
             color: var(--text-secondary) !important;
             letter-spacing: 1.5px;
@@ -77,14 +80,13 @@
         .custom-input {
             background-color: var(--input-bg) !important;
             border: 1px solid rgba(255, 255, 255, 0.15) !important;
-            color: #ffffff !important; /* Fuerza a que el texto que escribas sea blanco puro */
+            color: #ffffff !important;
             border-radius: 1rem;
             padding: 0.9rem 1.2rem;
             font-size: 1rem;
             transition: all 0.3s ease;
         }
         
-        /* Efecto de resplandor (Glow) al escribir */
         .custom-input:focus {
             background-color: rgba(0, 0, 0, 0.6) !important;
             border-color: #b040ff !important;
@@ -92,20 +94,17 @@
             outline: none;
         }
 
-        /* Corrección de la opacidad del placeholder para que sea legible */
         .custom-input::placeholder { 
             color: rgba(255, 255, 255, 0.5) !important; 
             font-weight: 300;
         }
 
-        /* Aseguramos que las opciones del Select se vean bien en Windows/Mac */
         select.custom-input option {
             background-color: #16161e;
             color: #ffffff;
             padding: 10px;
         }
 
-        /* --- BOTÓN PREMIUM --- */
         .btn-neon {
             background: var(--neon-gradient);
             color: white;
@@ -124,7 +123,6 @@
             color: white;
         }
 
-        /* --- TABLA --- */
         .playlist-table {
             border-collapse: separate;
             border-spacing: 0 12px;
@@ -150,7 +148,7 @@
 
         .playlist-table tbody tr:hover {
             background-color: rgba(255, 255, 255, 0.08) !important;
-            transform: translateX(5px); /* Pequeño desplazamiento a la derecha al pasar el mouse */
+            transform: translateX(5px);
         }
 
         .playlist-table td {
@@ -162,14 +160,28 @@
         }
 
         .playlist-table td:first-child { border-radius: 1rem 0 0 1rem; }
-        .playlist-table td:last-child { border-radius: 0 1rem 1rem 0; }
+        .playlist-table td:last-child  { border-radius: 0 1rem 1rem 0; }
         
         .empty-state-icon {
-            width: 80px; 
-            height: 80px; 
+            width: 80px; height: 80px; 
             background: rgba(255,255,255,0.03);
             box-shadow: inset 0 0 20px rgba(255,255,255,0.02);
         }
+
+        #toast {
+            position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;
+            background: rgba(22,22,30,0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(16px);
+            border-radius: 1rem; padding: 0.8rem 1.2rem;
+            font-size: 0.85rem; max-width: 280px;
+            transform: translateY(120%); opacity: 0;
+            transition: all .3s cubic-bezier(.34,1.56,.64,1);
+            pointer-events: none;
+        }
+        #toast.show  { transform: translateY(0); opacity: 1; }
+        #toast.ok    { border-color: #22c55e66; color: #22c55e; }
+        #toast.error { border-color: #ef444466; color: #ef4444; }
     </style>
 </head>
 <body class="py-5">
@@ -178,7 +190,10 @@
     <div class="d-flex justify-content-between align-items-center mb-5 animate-up" style="animation-delay: 0.1s;">
         <div>
             <h1 class="display-5 header-brand mb-0"><i class="bi bi-soundwave me-2 text-white"></i>AudioHub</h1>
-            <p class="text-white-50 mb-0 mt-1">EPN Event Manager System</p>
+            <p class="text-white-50 mb-0 mt-1">
+                <span class="hub-dot" id="hubDot"></span>
+                <span id="hubLabel">Verificando conexión…</span>
+            </p>
         </div>
         <div class="d-flex align-items-center gap-3">
             <span class="text-white-50 d-none d-md-inline">Hola, Administrador</span>
@@ -189,38 +204,44 @@
     </div>
 
     <div class="row g-4">
+        <!-- FORMULARIO -->
         <div class="col-xl-4 col-lg-5 animate-up" style="animation-delay: 0.2s;">
             <div class="glass-card h-100">
                 <h4 class="fw-bold mb-4 d-flex align-items-center">
-                    <i class="bi bi-plus-circle-dotted me-2" style="color: #b040ff;"></i> Añadir a la librería
+                    <i class="bi bi-plus-circle-dotted me-2" style="color: #b040ff;"></i>
+                    <span id="formTitle">Añadir a la librería</span>
                 </h4>
                 
-                <form id="audioForm">
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">TIPO DE AUDIO</label>
-                        <select class="form-select custom-input" id="tipo" required>
-                            <option value="Cancion">🎵 Canción</option>
-                            <option value="Podcast">🎙️ Podcast</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-4">
-                        <label class="form-label fw-bold">TÍTULO</label>
-                        <input type="text" class="form-control custom-input" id="titulo" required placeholder="Ej. Bohemian Rhapsody">
-                    </div>
-                    
-                    <div class="mb-5">
-                        <label class="form-label fw-bold">ARTISTA / AUTOR</label>
-                        <input type="text" class="form-control custom-input" id="autor" required placeholder="Ej. Queen">
-                    </div>
-                    
-                    <button type="submit" class="btn btn-neon w-100">
+                <input type="hidden" id="editId" />
+
+                <div class="mb-4">
+                    <label class="form-label fw-bold">TIPO DE AUDIO</label>
+                    <select class="form-select custom-input" id="tipo" required>
+                        <option value="cancion">🎵 Canción</option>
+                        <option value="podcast">🎙️ Podcast</option>
+                    </select>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label fw-bold">TÍTULO</label>
+                    <input type="text" class="form-control custom-input" id="titulo" required placeholder="Ej. Bohemian Rhapsody">
+                </div>
+                
+                <div class="mb-5">
+                    <label class="form-label fw-bold">ARTISTA / AUTOR</label>
+                    <input type="text" class="form-control custom-input" id="autor" required placeholder="Ej. Queen">
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-neon flex-grow-1" id="btnSubmit" onclick="submitForm()">
                         <i class="bi bi-collection-play-fill me-2"></i> Guardar en Biblioteca
                     </button>
-                </form>
+                    <button type="button" class="btn btn-outline-secondary rounded-3" onclick="cancelEdit()" id="btnCancel" style="display:none;">✕</button>
+                </div>
             </div>
         </div>
 
+        <!-- TABLA -->
         <div class="col-xl-8 col-lg-7 animate-up" style="animation-delay: 0.3s;">
             <div class="glass-card h-100">
                 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -234,7 +255,7 @@
                     <table class="table playlist-table mb-0 w-100">
                         <thead>
                             <tr>
-                                <th>#</th>
+                                <th>Tipo</th>
                                 <th>Título</th>
                                 <th>Artista</th>
                                 <th class="text-end"><i class="bi bi-gear"></i></th>
@@ -257,6 +278,8 @@
         </div>
     </div>
 </div>
+
+<div id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script src="app.js"></script>
