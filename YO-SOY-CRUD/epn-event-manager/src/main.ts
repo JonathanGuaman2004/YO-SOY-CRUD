@@ -106,3 +106,5 @@ async function bootstrap() {
 }
 
 void bootstrap();
+
+//ya agregue .env para bastantes puertos
