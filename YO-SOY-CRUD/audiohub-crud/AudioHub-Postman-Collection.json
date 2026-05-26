@@ -1,0 +1,154 @@
+{
+  "info": {
+    "name": "AudioHub CRUD — FIS EPN 2026",
+    "description": "Colección completa de la API AudioHub. Todos los endpoints protegidos requieren el header X-FIS-EPN-KEY.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:4003" },
+    { "key": "api_key",  "value": "audiohub-2026" },
+    { "key": "audio_id", "value": "AUD-0001" }
+  ],
+  "item": [
+    {
+      "name": "🟢 Health Check (público)",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/health",
+        "description": "Verifica el estado del servidor y la conexión con el Event Manager. No requiere API Key."
+      }
+    },
+    {
+      "name": "📋 Listar todos los audios",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/audios",
+        "header": [{ "key": "X-FIS-EPN-KEY", "value": "{{api_key}}" }],
+        "description": "Retorna todos los audios ordenados por fecha de creación descendente."
+      }
+    },
+    {
+      "name": "🔍 Obtener audio por ID",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/audios/{{audio_id}}",
+        "header": [{ "key": "X-FIS-EPN-KEY", "value": "{{api_key}}" }],
+        "description": "Busca un audio por su ID único (ej. AUD-0001)."
+      }
+    },
+    {
+      "name": "➕ Crear audio (canción)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/audios",
+        "header": [
+          { "key": "X-FIS-EPN-KEY",  "value": "{{api_key}}" },
+          { "key": "Content-Type",   "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tipo\": \"cancion\",\n  \"titulo\": \"Bohemian Rhapsody\",\n  \"autor\": \"Queen\"\n}"
+        },
+        "description": "Crea un nuevo audio. Tipos válidos: cancion, podcast."
+      }
+    },
+    {
+      "name": "➕ Crear audio (podcast)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/audios",
+        "header": [
+          { "key": "X-FIS-EPN-KEY",  "value": "{{api_key}}" },
+          { "key": "Content-Type",   "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tipo\": \"podcast\",\n  \"titulo\": \"Lex Fridman #400\",\n  \"autor\": \"Lex Fridman\"\n}"
+        }
+      }
+    },
+    {
+      "name": "✏️ Actualizar audio",
+      "request": {
+        "method": "PUT",
+        "url": "{{base_url}}/audios/{{audio_id}}",
+        "header": [
+          { "key": "X-FIS-EPN-KEY",  "value": "{{api_key}}" },
+          { "key": "Content-Type",   "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"titulo\": \"Bohemian Rhapsody (Remastered)\",\n  \"autor\": \"Queen\",\n  \"tipo\": \"cancion\"\n}"
+        },
+        "description": "Actualiza parcial o totalmente un audio existente."
+      }
+    },
+    {
+      "name": "🗑️ Eliminar audio",
+      "request": {
+        "method": "DELETE",
+        "url": "{{base_url}}/audios/{{audio_id}}",
+        "header": [{ "key": "X-FIS-EPN-KEY", "value": "{{api_key}}" }],
+        "description": "Elimina un audio de forma física de la base de datos."
+      }
+    },
+    {
+      "name": "📊 Estadísticas",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/audios/stats",
+        "header": [{ "key": "X-FIS-EPN-KEY", "value": "{{api_key}}" }],
+        "description": "Retorna conteo total, por tipo y top 5 autores."
+      }
+    },
+    {
+      "name": "❌ Sin API Key (debe dar 401)",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/audios",
+        "description": "Prueba que el servidor rechaza peticiones sin el header X-FIS-EPN-KEY."
+      }
+    },
+    {
+      "name": "❌ API Key incorrecta (debe dar 403)",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/audios",
+        "header": [{ "key": "X-FIS-EPN-KEY", "value": "clave-incorrecta" }],
+        "description": "Prueba que el servidor rechaza API Keys inválidas."
+      }
+    },
+    {
+      "name": "❌ Crear sin campos (debe dar 400)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/audios",
+        "header": [
+          { "key": "X-FIS-EPN-KEY",  "value": "{{api_key}}" },
+          { "key": "Content-Type",   "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "description": "Prueba la validación: debe devolver 400 con los errores de campos obligatorios."
+      }
+    },
+    {
+      "name": "❌ Tipo inválido (debe dar 400)",
+      "request": {
+        "method": "POST",
+        "url": "{{base_url}}/audios",
+        "header": [
+          { "key": "X-FIS-EPN-KEY",  "value": "{{api_key}}" },
+          { "key": "Content-Type",   "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tipo\": \"album\",\n  \"titulo\": \"Test\",\n  \"autor\": \"Test\"\n}"
+        },
+        "description": "Prueba que tipos no permitidos son rechazados con 400."
+      }
+    }
+  ]
+}

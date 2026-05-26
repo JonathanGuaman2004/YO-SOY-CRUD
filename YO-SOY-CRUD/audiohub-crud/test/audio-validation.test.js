@@ -6,9 +6,10 @@ const {
   normalizeTipo,
   validateAudio,
   ALLOWED_TYPES,
+  requireApiKey,
 } = require('../server');
 
-// ── clean ────────────────────────────────────────────────────────────────────
+// ── clean ─────────────────────────────────────────────────────────────────────
 
 test('clean: recorta espacios', () => {
   assert.equal(clean('  Bohemian Rhapsody  '), 'Bohemian Rhapsody');
@@ -54,47 +55,27 @@ test('validación: rechaza audio sin campos obligatorios', () => {
 });
 
 test('validación: acepta un audio correcto', () => {
-  const errors = validateAudio({
-    titulo: 'Bohemian Rhapsody',
-    autor:  'Queen',
-    tipo:   'cancion',
-  });
+  const errors = validateAudio({ titulo: 'Bohemian Rhapsody', autor: 'Queen', tipo: 'cancion' });
   assert.deepEqual(errors, []);
 });
 
 test('validación: acepta tipo podcast', () => {
-  const errors = validateAudio({
-    titulo: 'Lex Fridman #400',
-    autor:  'Lex Fridman',
-    tipo:   'podcast',
-  });
+  const errors = validateAudio({ titulo: 'Lex Fridman #400', autor: 'Lex Fridman', tipo: 'podcast' });
   assert.deepEqual(errors, []);
 });
 
 test('validación: rechaza tipo inválido', () => {
-  const errors = validateAudio({
-    titulo: 'Mi canción',
-    autor:  'Artista',
-    tipo:   'album',
-  });
+  const errors = validateAudio({ titulo: 'Mi canción', autor: 'Artista', tipo: 'album' });
   assert.ok(errors.some(e => e.includes('tipo debe ser uno de')));
 });
 
 test('validación: rechaza titulo mayor a 120 caracteres', () => {
-  const errors = validateAudio({
-    titulo: 'A'.repeat(121),
-    autor:  'Artista',
-    tipo:   'cancion',
-  });
+  const errors = validateAudio({ titulo: 'A'.repeat(121), autor: 'Artista', tipo: 'cancion' });
   assert.ok(errors.includes('titulo no puede superar 120 caracteres'));
 });
 
 test('validación: rechaza autor mayor a 80 caracteres', () => {
-  const errors = validateAudio({
-    titulo: 'Canción',
-    autor:  'B'.repeat(81),
-    tipo:   'cancion',
-  });
+  const errors = validateAudio({ titulo: 'Canción', autor: 'B'.repeat(81), tipo: 'cancion' });
   assert.ok(errors.includes('autor no puede superar 80 caracteres'));
 });
 
@@ -108,7 +89,41 @@ test('validación parcial (isUpdate): valida titulo si está presente', () => {
   assert.ok(errors.includes('titulo es obligatorio'));
 });
 
-// ── ALLOWED_TYPES ──────────────────────────────────────────────────────────────
+// ── API Key middleware ────────────────────────────────────────────────────────
+
+test('requireApiKey: rechaza petición sin header', () => {
+  const req = { headers: {}, method: 'GET', originalUrl: '/audios', ip: '::1' };
+  let statusCode = null;
+  let body = null;
+  const res = {
+    status(code) { statusCode = code; return this; },
+    json(data)   { body = data; },
+  };
+  requireApiKey(req, res, () => {});
+  assert.equal(statusCode, 401);
+  assert.ok(body.error.includes('API Key requerida'));
+});
+
+test('requireApiKey: rechaza petición con key incorrecta', () => {
+  const req = { headers: { 'x-fis-epn-key': 'clave-incorrecta' }, method: 'GET', originalUrl: '/audios', ip: '::1' };
+  let statusCode = null;
+  const res = {
+    status(code) { statusCode = code; return this; },
+    json() {},
+  };
+  requireApiKey(req, res, () => {});
+  assert.equal(statusCode, 403);
+});
+
+test('requireApiKey: permite petición con key correcta', () => {
+  const req = { headers: { 'x-fis-epn-key': 'audiohub-2026' }, method: 'GET', originalUrl: '/audios', ip: '::1' };
+  let nextCalled = false;
+  const res = { status() { return this; }, json() {} };
+  requireApiKey(req, res, () => { nextCalled = true; });
+  assert.equal(nextCalled, true);
+});
+
+// ── ALLOWED_TYPES ─────────────────────────────────────────────────────────────
 
 test('ALLOWED_TYPES contiene cancion y podcast', () => {
   assert.ok(ALLOWED_TYPES.includes('cancion'));
