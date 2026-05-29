@@ -1,7 +1,7 @@
 {
   "name": "missions-crud",
   "version": "1.0.0",
-  "description": "",
+  "description": "CRUD de misiones espaciales con seguridad por API-Key, logs estructurados, pruebas y documentación.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,8 +10,13 @@
     "lint": "eslint .",
     "test": "node --test test/*.test.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "crud",
+    "express",
+    "sqlite",
+    "mantenimiento-software"
+  ],
+  "author": "EPN FIS",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {

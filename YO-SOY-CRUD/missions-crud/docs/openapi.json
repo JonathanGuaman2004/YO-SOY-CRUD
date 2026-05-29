@@ -1,0 +1,135 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Space Mission Control API",
+    "version": "1.0.0",
+    "description": "API CRUD de misiones espaciales con API-Key, SQLite, logs estructurados y eventos de auditoría."
+  },
+  "servers": [
+    { "url": "http://localhost:4000", "description": "Servidor local" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "FisEpnApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-FIS-EPN-KEY"
+      }
+    },
+    "schemas": {
+      "Mission": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "example": "MSN-0001" },
+          "name": { "type": "string", "example": "Artemis IV" },
+          "agency": { "type": "string", "example": "NASA" },
+          "type": { "type": "string", "example": "Lunar" },
+          "vehicle": { "type": "string", "example": "SLS Block 1" },
+          "date": { "type": "string", "format": "date", "example": "2028-09-01" },
+          "status": { "type": "string", "enum": ["planned", "active", "completed", "failed", "aborted"] },
+          "crew": { "type": "string", "example": "Comandante A, Piloto B" },
+          "description": { "type": "string", "example": "Exploración lunar" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MissionInput": {
+        "type": "object",
+        "required": ["name", "agency", "type"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 80 },
+          "agency": { "type": "string", "maxLength": 60 },
+          "type": { "type": "string", "maxLength": 60 },
+          "vehicle": { "type": "string", "maxLength": 60 },
+          "date": { "type": "string", "format": "date" },
+          "status": { "type": "string", "enum": ["planned", "active", "completed", "failed", "aborted"], "default": "planned" },
+          "crew": { "type": "string", "maxLength": 120 },
+          "description": { "type": "string", "maxLength": 300 }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Verifica disponibilidad de API, base de datos y Hub",
+        "responses": {
+          "200": { "description": "Estado de la aplicación" }
+        }
+      }
+    },
+    "/missions/stats": {
+      "get": {
+        "summary": "Obtiene métricas agregadas del CRUD",
+        "security": [{ "FisEpnApiKey": [] }],
+        "responses": {
+          "200": { "description": "Métricas por estado" },
+          "401": { "description": "API-Key ausente o inválida" }
+        }
+      }
+    },
+    "/missions": {
+      "get": {
+        "summary": "Lista misiones con filtros opcionales",
+        "security": [{ "FisEpnApiKey": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["planned", "active", "completed", "failed", "aborted"] } },
+          { "name": "agency", "in": "query", "schema": { "type": "string" } },
+          { "name": "type", "in": "query", "schema": { "type": "string" } },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "Listado de misiones", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Mission" } } } } },
+          "401": { "description": "API-Key ausente o inválida" }
+        }
+      },
+      "post": {
+        "summary": "Crea una misión",
+        "security": [{ "FisEpnApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MissionInput" } } } },
+        "responses": {
+          "201": { "description": "Misión creada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Mission" } } } },
+          "400": { "description": "Datos inválidos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "API-Key ausente o inválida" }
+        }
+      }
+    },
+    "/missions/{id}": {
+      "get": {
+        "summary": "Consulta una misión por ID",
+        "security": [{ "FisEpnApiKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "example": "MSN-0001" } }],
+        "responses": {
+          "200": { "description": "Misión encontrada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Mission" } } } },
+          "404": { "description": "Misión no encontrada" }
+        }
+      },
+      "put": {
+        "summary": "Actualiza una misión",
+        "security": [{ "FisEpnApiKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "example": "MSN-0001" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MissionInput" } } } },
+        "responses": {
+          "200": { "description": "Misión actualizada" },
+          "400": { "description": "Datos inválidos" },
+          "404": { "description": "Misión no encontrada" }
+        }
+      },
+      "delete": {
+        "summary": "Elimina físicamente una misión",
+        "security": [{ "FisEpnApiKey": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "example": "MSN-0001" } }],
+        "responses": {
+          "200": { "description": "Misión eliminada" },
+          "404": { "description": "Misión no encontrada" }
+        }
+      }
+    }
+  }
+}
