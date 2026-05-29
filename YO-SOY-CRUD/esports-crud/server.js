@@ -1,35 +1,99 @@
+'use strict';
+
 const express = require('express');
-const cors = require('cors');
-const axios = require('axios');
-const path = require('path');
-const fs = require('fs');
+const cors    = require('cors');
+const axios   = require('axios');
+const path    = require('path');
+const fs      = require('fs');
 const { DatabaseSync } = require('node:sqlite');
+
+// ═══════════════════════════════════════════════════════════
+// MANTENIMIENTO CORRECTIVO — Logger estructurado con niveles
+// Winston-style logger usando únicamente módulos nativos
+// ═══════════════════════════════════════════════════════════
+const LOG_DIR  = path.join(__dirname, 'logs');
+const LOG_FILE = path.join(LOG_DIR, 'esports-audit.log');
+fs.mkdirSync(LOG_DIR, { recursive: true });
+
+const LEVELS = { INFO: 'INFO', WARN: 'WARN', ERROR: 'ERROR' };
+
+function structuredLog(level, action, message, meta = {}) {
+  const entry = {
+    timestamp: new Date().toISOString(),   // ISO 8601 obligatorio
+    level,
+    action,
+    message,
+    ...meta,
+  };
+  const line = JSON.stringify(entry);
+  // Consola con colores básicos
+  const color = level === LEVELS.ERROR ? '\x1b[31m'
+              : level === LEVELS.WARN  ? '\x1b[33m'
+              :                          '\x1b[36m';
+  console.log(`${color}[${entry.timestamp}] [${level}] [${action}]\x1b[0m ${message}`);
+  // Escritura en archivo de auditoría
+  fs.appendFileSync(LOG_FILE, line + '\n', 'utf8');
+}
+
+const logger = {
+  info:  (action, msg, meta) => structuredLog(LEVELS.INFO,  action, msg, meta),
+  warn:  (action, msg, meta) => structuredLog(LEVELS.WARN,  action, msg, meta),
+  error: (action, msg, meta) => structuredLog(LEVELS.ERROR, action, msg, meta),
+};
+
+// ═══════════════════════════════════════════════════════════
+// MANTENIMIENTO ADAPTATIVO — Configuración externa (.env)
+// Variables críticas extraídas del entorno institucional
+// ═══════════════════════════════════════════════════════════
+const EVENT_MANAGER_URL        = process.env.EVENT_MANAGER_URL        || 'http://localhost:3000/events';
+const EVENT_MANAGER_HEALTH_URL = process.env.EVENT_MANAGER_HEALTH_URL || 'http://localhost:3000/health';
+const PORT     = process.env.PORT            || 4001;
+const DB_DIR   = path.join(__dirname, 'db');
+const DB_PATH  = process.env.ESPORTS_DB_PATH || path.join(DB_DIR, 'esports.sqlite');
+
+// MANTENIMIENTO ADAPTATIVO — Clave API institucional requerida
+// El header X-FIS-EPN-KEY debe estar presente en todas las mutaciones
+const FIS_API_KEY = process.env.FIS_API_KEY || 'FIS-EPN-2026';
+
+// ── Middleware de autenticación por API-Key ──────────────────
+function requireApiKey(req, res, next) {
+  const key = req.headers['x-fis-epn-key'];
+  if (!key || key !== FIS_API_KEY) {
+    logger.warn('AUTH', 'Acceso rechazado: API Key inválida o ausente', {
+      ip: req.ip, path: req.path, method: req.method,
+    });
+    return res.status(401).json({
+      error: 'No autorizado. Incluya el header X-FIS-EPN-KEY válido.',
+    });
+  }
+  next();
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '100kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const EVENT_MANAGER_URL = process.env.EVENT_MANAGER_URL || 'http://localhost:3000/events';
-const EVENT_MANAGER_HEALTH_URL = process.env.EVENT_MANAGER_HEALTH_URL || 'http://localhost:3000/health';
-const PORT = process.env.PORT || 4001;
-const DB_DIR = path.join(__dirname, 'db');
-const DB_PATH = process.env.ESPORTS_DB_PATH || path.join(DB_DIR, 'esports.sqlite');
+// ── Middleware de trazabilidad de requests ───────────────────
+app.use((req, res, next) => {
+  logger.info('REQUEST', `${req.method} ${req.path}`, { ip: req.ip });
+  next();
+});
 
-// ── Valores permitidos ──
+// ── Valores permitidos ───────────────────────────────────────
 const ALLOWED_STATUS = ['próximo', 'en_curso', 'finalizado', 'cancelado'];
-const ALLOWED_GAMES = [
+const ALLOWED_GAMES  = [
   'League of Legends', 'Valorant', 'CS2', 'Dota 2',
   'Fortnite', 'Rocket League', 'FIFA', 'Street Fighter 6',
-  'Apex Legends', 'Overwatch 2'
+  'Apex Legends', 'Overwatch 2',
 ];
 
+// ── Base de datos ────────────────────────────────────────────
 fs.mkdirSync(DB_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
 
-// ── Migración / creación de tablas ──
 function migrateDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tournaments (
@@ -46,73 +110,103 @@ function migrateDatabase() {
       createdAt   TEXT NOT NULL,
       updatedAt   TEXT NOT NULL
     );
-
     CREATE INDEX IF NOT EXISTS idx_tournaments_status ON tournaments(status);
     CREATE INDEX IF NOT EXISTS idx_tournaments_game   ON tournaments(game);
   `);
+  logger.info('DB', 'Migración completada', { db: DB_PATH });
 }
-
 migrateDatabase();
 
-// ── Utilidades ──
+// ═══════════════════════════════════════════════════════════
+// MANTENIMIENTO PREVENTIVO — Sanitización rigurosa de entrada
+// Validación exhaustiva de tipos, nulos y desbordamiento
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Limpia y convierte un valor a string seguro.
+ * @param {*} value
+ * @returns {string}
+ */
 function clean(value) {
   if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return '';       // ← Bug correctivo: evita "[object Object]"
+  if (typeof value === 'object') return '';    // ← Bug correctivo: evita "[object Object]"
   return String(value).trim();
 }
 
+/**
+ * Normaliza el campo status; devuelve 'próximo' si el valor no es válido.
+ * @param {string} status
+ * @returns {string}
+ */
 function normalizeStatus(status) {
   const s = clean(status || 'próximo');
   return ALLOWED_STATUS.includes(s) ? s : 'próximo';
 }
 
-// ── Validación (Mantenimiento Preventivo) ──
+/**
+ * Valida los campos de un torneo.
+ * MANTENIMIENTO PREVENTIVO: control de tipos, rangos y longitudes.
+ * MANTENIMIENTO ADAPTATIVO:  validación de orden de fechas.
+ * @param {object} data
+ * @param {boolean} isUpdate
+ * @returns {string[]} lista de errores
+ */
 function validateTournament(data, isUpdate = false) {
   const errors = [];
 
-  const name        = clean(data.name);
-  const game        = clean(data.game);
-  const organizer   = clean(data.organizer);
-  const dateStart   = clean(data.date_start);
-  const dateEnd     = clean(data.date_end);
-  const prizePool   = Number(data.prize_pool);
-  const maxTeams    = Number(data.max_teams);
-  const status      = clean(data.status || 'próximo');
+  // PREVENTIVO: control estricto de nulos y tipos
+  if (data === null || typeof data !== 'object') {
+    return ['El cuerpo de la petición debe ser un objeto JSON válido'];
+  }
+
+  const name       = clean(data.name);
+  const game       = clean(data.game);
+  const organizer  = clean(data.organizer);
+  const dateStart  = clean(data.date_start);
+  const dateEnd    = clean(data.date_end);
+  const prizePool  = Number(data.prize_pool);
+  const maxTeams   = Number(data.max_teams);
+  const status     = clean(data.status || 'próximo');
+  const desc       = clean(data.description);
 
   if (!isUpdate || data.name !== undefined) {
-    if (!name)              errors.push('name es obligatorio');
+    if (!name)             errors.push('name es obligatorio');
     if (name.length > 80)  errors.push('name no puede superar 80 caracteres');
+    // PREVENTIVO: detectar inyección básica de caracteres especiales
+    if (/[<>{}]/.test(name)) errors.push('name contiene caracteres no permitidos');
   }
 
   if (!isUpdate || data.game !== undefined) {
-    if (!game)                          errors.push('game es obligatorio');
-    if (!ALLOWED_GAMES.includes(game))  errors.push(`game debe ser uno de: ${ALLOWED_GAMES.join(', ')}`);
+    if (!game)                         errors.push('game es obligatorio');
+    if (!ALLOWED_GAMES.includes(game)) errors.push(`game debe ser uno de: ${ALLOWED_GAMES.join(', ')}`);
   }
 
   if (!isUpdate || data.organizer !== undefined) {
-    if (!organizer)             errors.push('organizer es obligatorio');
-    if (organizer.length > 60)  errors.push('organizer no puede superar 60 caracteres');
+    if (!organizer)            errors.push('organizer es obligatorio');
+    if (organizer.length > 60) errors.push('organizer no puede superar 60 caracteres');
   }
 
   if (!isUpdate || data.date_start !== undefined) {
-    if (!dateStart)                         errors.push('date_start es obligatorio');
+    if (!dateStart)                              errors.push('date_start es obligatorio');
     if (dateStart && isNaN(Date.parse(dateStart))) errors.push('date_start debe ser fecha válida (ISO)');
   }
 
   if (!isUpdate || data.date_end !== undefined) {
-    if (!dateEnd)                         errors.push('date_end es obligatorio');
+    if (!dateEnd)                              errors.push('date_end es obligatorio');
     if (dateEnd && isNaN(Date.parse(dateEnd))) errors.push('date_end debe ser fecha válida (ISO)');
   }
 
-  // Mantenimiento Adaptativo: validar que fecha fin > fecha inicio
+  // ADAPTATIVO: fecha de fin debe ser posterior a fecha de inicio
   if (dateStart && dateEnd && !isNaN(Date.parse(dateStart)) && !isNaN(Date.parse(dateEnd))) {
     if (new Date(dateEnd) <= new Date(dateStart)) {
       errors.push('date_end debe ser posterior a date_start');
     }
   }
 
-  if (data.prize_pool !== undefined && (isNaN(prizePool) || prizePool < 0)) {
-    errors.push('prize_pool debe ser un número positivo');
+  if (data.prize_pool !== undefined) {
+    if (isNaN(prizePool) || prizePool < 0) errors.push('prize_pool debe ser un número positivo');
+    // PREVENTIVO: límite razonable para evitar desbordamiento
+    if (prizePool > 10_000_000)            errors.push('prize_pool no puede superar 10,000,000');
   }
 
   if (data.max_teams !== undefined && (isNaN(maxTeams) || maxTeams < 2 || maxTeams > 256)) {
@@ -123,14 +217,14 @@ function validateTournament(data, isUpdate = false) {
     errors.push(`status inválido. Opciones: ${ALLOWED_STATUS.join(', ')}`);
   }
 
-  if (clean(data.description).length > 400) {
+  if (desc.length > 400) {
     errors.push('description no puede superar 400 caracteres');
   }
 
   return errors;
 }
 
-// ── IDs ──
+// ── IDs ─────────────────────────────────────────────────────
 function nextTournamentId() {
   const row = db
     .prepare("SELECT id FROM tournaments WHERE id LIKE 'TRN-%' ORDER BY CAST(SUBSTR(id, 5) AS INTEGER) DESC LIMIT 1")
@@ -139,7 +233,7 @@ function nextTournamentId() {
   return `TRN-${String(last + 1).padStart(4, '0')}`;
 }
 
-// ── Mapeo de fila ──
+// ── Mapeo de fila ────────────────────────────────────────────
 function mapTournament(row) {
   return {
     id:          row.id,
@@ -157,7 +251,7 @@ function mapTournament(row) {
   };
 }
 
-// ── CRUD DB ──
+// ── CRUD DB ──────────────────────────────────────────────────
 function findAllTournaments() {
   return db.prepare('SELECT * FROM tournaments ORDER BY createdAt DESC').all().map(mapTournament);
 }
@@ -183,19 +277,17 @@ function insertTournament(body) {
     createdAt:   now,
     updatedAt:   now,
   };
-
   db.prepare(`
-    INSERT INTO tournaments (id, name, game, organizer, date_start, date_end, prize_pool, max_teams, status, description, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(t.id, t.name, t.game, t.organizer, t.date_start, t.date_end, t.prize_pool, t.max_teams, t.status, t.description, t.createdAt, t.updatedAt);
-
+    INSERT INTO tournaments (id,name,game,organizer,date_start,date_end,prize_pool,max_teams,status,description,createdAt,updatedAt)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `).run(t.id, t.name, t.game, t.organizer, t.date_start, t.date_end,
+         t.prize_pool, t.max_teams, t.status, t.description, t.createdAt, t.updatedAt);
   return t;
 }
 
 function updateTournament(id, body) {
   const current = findTournamentById(id);
   if (!current) return null;
-
   const updated = {
     ...current,
     name:        body.name        !== undefined ? clean(body.name)        : current.name,
@@ -209,14 +301,12 @@ function updateTournament(id, body) {
     description: body.description !== undefined ? clean(body.description) : current.description,
     updatedAt:   new Date().toISOString(),
   };
-
   db.prepare(`
     UPDATE tournaments
-    SET name=?, game=?, organizer=?, date_start=?, date_end=?, prize_pool=?, max_teams=?, status=?, description=?, updatedAt=?
+    SET name=?,game=?,organizer=?,date_start=?,date_end=?,prize_pool=?,max_teams=?,status=?,description=?,updatedAt=?
     WHERE id=?
   `).run(updated.name, updated.game, updated.organizer, updated.date_start, updated.date_end,
          updated.prize_pool, updated.max_teams, updated.status, updated.description, updated.updatedAt, updated.id);
-
   return updated;
 }
 
@@ -227,45 +317,44 @@ function deleteTournamentById(id) {
   return t;
 }
 
-// ── Estadísticas (Mantenimiento Perfectivo) ──
+// ── Estadísticas (PERFECTIVO) ────────────────────────────────
 function getTournamentStats() {
-  const total      = db.prepare('SELECT COUNT(*) AS n FROM tournaments').get().n;
-  const upcoming   = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='próximo'").get().n;
-  const ongoing    = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='en_curso'").get().n;
-  const finished   = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='finalizado'").get().n;
-  const cancelled  = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='cancelado'").get().n;
-  const totalPrize = db.prepare('SELECT COALESCE(SUM(prize_pool),0) AS s FROM tournaments').get().s;
-  const byGame     = db.prepare('SELECT game, COUNT(*) AS n FROM tournaments GROUP BY game ORDER BY n DESC').all();
-
+  const total     = db.prepare('SELECT COUNT(*) AS n FROM tournaments').get().n;
+  const upcoming  = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='próximo'").get().n;
+  const ongoing   = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='en_curso'").get().n;
+  const finished  = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='finalizado'").get().n;
+  const cancelled = db.prepare("SELECT COUNT(*) AS n FROM tournaments WHERE status='cancelado'").get().n;
+  const totalPrize= db.prepare('SELECT COALESCE(SUM(prize_pool),0) AS s FROM tournaments').get().s;
+  const byGame    = db.prepare('SELECT game, COUNT(*) AS n FROM tournaments GROUP BY game ORDER BY n DESC').all();
   return { total, upcoming, ongoing, finished, cancelled, totalPrize, byGame };
 }
 
-// ── Enviar evento al Hub ──
+// ── Enviar evento al Hub ─────────────────────────────────────
 async function sendEvent(action, tournament) {
   try {
-    await axios.post(
-      EVENT_MANAGER_URL,
-      {
-        source:      'EsportsTournamentManager',
-        entity:      'Tournament',
-        action:      action.toUpperCase(),
-        title:       `[${action.toUpperCase()}] ${tournament.name || tournament.id || 'Tournament'}`,
-        description: `Juego: ${tournament.game || 'system'} | Organizador: ${tournament.organizer || 'system'} | Estado: ${tournament.status || 'query'}`,
-        payload:     tournament,
-      },
-      { timeout: 4000 },
-    );
-    console.log(`✅ Evento ${action} enviado al Hub`);
+    await axios.post(EVENT_MANAGER_URL, {
+      source:      'EsportsTournamentManager',
+      entity:      'Tournament',
+      action:      action.toUpperCase(),
+      title:       `[${action.toUpperCase()}] ${tournament.name || tournament.id || 'Tournament'}`,
+      description: `Juego: ${tournament.game || 'system'} | Organizador: ${tournament.organizer || 'system'} | Estado: ${tournament.status || 'query'}`,
+      payload:     tournament,
+    }, { timeout: 4000 });
+    logger.info('HUB', `Evento ${action} enviado`, { tournamentId: tournament.id });
     return true;
   } catch (error) {
-    console.error(`❌ Error enviando evento ${action}:`, error.message);
+    logger.warn('HUB', `Error enviando evento ${action}`, { error: error.message });
     return false;
   }
 }
 
-// ── Rutas ──
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// ═══════════════════════════════════════════════════════════
+// RUTAS
+// ═══════════════════════════════════════════════════════════
 
+app.get('/',  (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+// Health — no requiere API Key (monitoreo)
 app.get('/health', async (req, res) => {
   let hub;
   try {
@@ -274,6 +363,7 @@ app.get('/health', async (req, res) => {
   } catch {
     hub = 'offline';
   }
+  logger.info('HEALTH', 'Health check ejecutado', { hub });
   res.json({
     status: 'ok', api: 'esports-crud',
     database: fs.existsSync(DB_PATH) ? 'connected' : 'not-found',
@@ -281,72 +371,121 @@ app.get('/health', async (req, res) => {
   });
 });
 
-app.get('/tournaments/stats', (req, res) => res.json(getTournamentStats()));
+// Lecturas — no requieren API Key
+app.get('/tournaments/stats', (req, res) => {
+  try {
+    const stats = getTournamentStats();
+    logger.info('STATS', 'Estadísticas consultadas', stats);
+    res.json(stats);
+  } catch (err) {
+    logger.error('STATS', 'Error al obtener estadísticas', { error: err.message });
+    res.status(500).json({ error: 'Error interno al obtener estadísticas' });
+  }
+});
 
 app.get('/tournaments/games', (req, res) => res.json(ALLOWED_GAMES));
 
 app.get('/tournaments', async (req, res) => {
-  const list = findAllTournaments();
-  await sendEvent('QUERY', { id: 'ALL', name: 'Consulta general', game: 'system', organizer: 'system', status: 'query', total: list.length });
-  return res.json(list);
+  try {
+    const list = findAllTournaments();
+    logger.info('READ', 'Consulta general de torneos', { total: list.length });
+    await sendEvent('QUERY', { id: 'ALL', name: 'Consulta general', game: 'system', organizer: 'system', status: 'query', total: list.length });
+    return res.json(list);
+  } catch (err) {
+    logger.error('READ', 'Error en consulta general', { error: err.message });
+    return res.status(500).json({ error: 'Error interno al consultar torneos' });
+  }
 });
 
 app.get('/tournaments/:id', async (req, res) => {
-  const t = findTournamentById(req.params.id);
-  if (!t) return res.status(404).json({ error: 'Torneo no encontrado' });
-  await sendEvent('QUERY', t);
-  return res.json(t);
+  // PREVENTIVO: sanitizar el ID antes de consultar
+  const id = clean(req.params.id);
+  if (!id) return res.status(400).json({ error: 'ID de torneo inválido' });
+  try {
+    const t = findTournamentById(id);
+    if (!t) {
+      logger.warn('READ', `Torneo no encontrado: ${id}`);
+      return res.status(404).json({ error: 'Torneo no encontrado' });
+    }
+    logger.info('READ', `Torneo consultado: ${id}`, { name: t.name });
+    await sendEvent('QUERY', t);
+    return res.json(t);
+  } catch (err) {
+    logger.error('READ', `Error al consultar torneo ${id}`, { error: err.message });
+    return res.status(500).json({ error: 'Error interno al consultar el torneo' });
+  }
 });
 
-app.post('/tournaments', async (req, res) => {
-  const errors = validateTournament(req.body);
-  if (errors.length) return res.status(400).json({ error: errors.join(', ') });
+// ── Mutaciones protegidas con API Key (ADAPTATIVO) ───────────
 
+app.post('/tournaments', requireApiKey, async (req, res) => {
+  const errors = validateTournament(req.body);
+  if (errors.length) {
+    logger.warn('CREATE', 'Validación fallida', { errors });
+    return res.status(400).json({ error: errors.join(', ') });
+  }
   try {
     const t = insertTournament(req.body);
+    logger.info('CREATE', `Torneo creado: ${t.id}`, { name: t.name, game: t.game });
     await sendEvent('CREATE', t);
     return res.status(201).json(t);
   } catch (err) {
-    console.error('Error al insertar torneo:', err.message);
+    logger.error('CREATE', 'Error al insertar torneo', { error: err.message });
     return res.status(500).json({ error: 'Error interno al crear el torneo' });
   }
 });
 
-app.put('/tournaments/:id', async (req, res) => {
-  const exists = findTournamentById(req.params.id);
-  if (!exists) return res.status(404).json({ error: 'Torneo no encontrado' });
+app.put('/tournaments/:id', requireApiKey, async (req, res) => {
+  const id = clean(req.params.id);
+  if (!id) return res.status(400).json({ error: 'ID de torneo inválido' });
+
+  const exists = findTournamentById(id);
+  if (!exists) {
+    logger.warn('UPDATE', `Torneo no encontrado para actualizar: ${id}`);
+    return res.status(404).json({ error: 'Torneo no encontrado' });
+  }
 
   const errors = validateTournament(req.body, true);
-  if (errors.length) return res.status(400).json({ error: errors.join(', ') });
+  if (errors.length) {
+    logger.warn('UPDATE', 'Validación fallida en actualización', { errors, id });
+    return res.status(400).json({ error: errors.join(', ') });
+  }
 
   try {
-    const updated = updateTournament(req.params.id, req.body);
+    const updated = updateTournament(id, req.body);
+    logger.info('UPDATE', `Torneo actualizado: ${id}`, { name: updated.name });
     await sendEvent('UPDATE', updated);
     return res.json(updated);
   } catch (err) {
-    console.error('Error al actualizar torneo:', err.message);
+    logger.error('UPDATE', `Error al actualizar torneo ${id}`, { error: err.message });
     return res.status(500).json({ error: 'Error interno al actualizar el torneo' });
   }
 });
 
-app.delete('/tournaments/:id', async (req, res) => {
+app.delete('/tournaments/:id', requireApiKey, async (req, res) => {
+  const id = clean(req.params.id);
+  if (!id) return res.status(400).json({ error: 'ID de torneo inválido' });
   try {
-    const deleted = deleteTournamentById(req.params.id);
-    if (!deleted) return res.status(404).json({ error: 'Torneo no encontrado' });
+    const deleted = deleteTournamentById(id);
+    if (!deleted) {
+      logger.warn('DELETE', `Torneo no encontrado para eliminar: ${id}`);
+      return res.status(404).json({ error: 'Torneo no encontrado' });
+    }
+    logger.info('DELETE', `Torneo eliminado: ${id}`, { name: deleted.name });
     await sendEvent('DELETE', deleted);
     return res.json({ message: 'Torneo eliminado', tournament: deleted });
   } catch (err) {
-    console.error('Error al eliminar torneo:', err.message);
+    logger.error('DELETE', `Error al eliminar torneo ${id}`, { error: err.message });
     return res.status(500).json({ error: 'Error interno al eliminar el torneo' });
   }
 });
 
-// ── Arranque ──
+// ── Arranque ─────────────────────────────────────────────────
 function startServer() {
   return app.listen(PORT, () => {
-    console.log(`🎮 Esports Tournament Manager corriendo en http://localhost:${PORT}`);
-    console.log(`🗄️  Base de datos: ${DB_PATH}`);
-    console.log('📡 Enviando eventos al Event Manager en http://localhost:3000');
+    logger.info('STARTUP', `Esports CRUD iniciado en puerto ${PORT}`, {
+      db: DB_PATH, hub: EVENT_MANAGER_URL,
+    });
   });
 }
 
@@ -355,5 +494,5 @@ if (require.main === module) startServer();
 module.exports = {
   app, clean, normalizeStatus, validateTournament, getTournamentStats,
   findAllTournaments, findTournamentById, insertTournament, updateTournament,
-  deleteTournamentById, startServer, ALLOWED_GAMES, ALLOWED_STATUS,
+  deleteTournamentById, startServer, ALLOWED_GAMES, ALLOWED_STATUS, logger,
 };

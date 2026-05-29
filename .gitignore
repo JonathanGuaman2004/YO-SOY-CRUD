@@ -2,8 +2,13 @@
 dist/
 coverage/
 .env
+.env.local
+.env.*.local
 db/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.tsbuildinfo
+*.log
+pnpm-debug.log*
 .DS_Store
