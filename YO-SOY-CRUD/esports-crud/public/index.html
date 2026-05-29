@@ -912,7 +912,7 @@ async function submitForm() {
 
   try {
     const r = await fetch(url, {
-      method, headers: { 'Content-Type': 'application/json' },
+      method, headers: { 'Content-Type': 'application/json', 'X-FIS-EPN-KEY': 'FIS-EPN-2026' },
       body: JSON.stringify(body),
     });
     const d = await r.json();
@@ -927,7 +927,7 @@ async function deleteTournament(id) {
   const t = tournaments.find(x => x.id === id);
   if (!t || !confirm(`¿Eliminar "${t.name}"?`)) return;
   try {
-    const r = await fetch(`${BASE}/tournaments/${id}`, { method: 'DELETE' });
+    const r = await fetch(`${BASE}/tournaments/${id}`, { method: 'DELETE', headers: { 'X-FIS-EPN-KEY': 'FIS-EPN-2026' } });
     if (!r.ok) { const d = await r.json(); toast(d.error, 'err'); return; }
     toast('Torneo eliminado 🗑');
     if (editingId === id) resetForm();

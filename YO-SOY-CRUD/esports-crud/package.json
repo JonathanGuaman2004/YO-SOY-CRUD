@@ -4,8 +4,8 @@
   "description": "Sistema de Gestión de Torneos de Deportes Electrónicos (Esports)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
+    "start": "node --env-file=.env server.js",
+    "dev": "node --env-file=.env server.js",
     "check": "node --check server.js",
     "lint": "eslint .",
     "test": "node --test test/*.test.js"
