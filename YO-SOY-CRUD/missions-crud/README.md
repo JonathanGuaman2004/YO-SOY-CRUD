@@ -1,11 +1,21 @@
 # Space Mission Control — CRUD de Misiones Espaciales
 
-Este módulo es el CRUD personal de misiones espaciales. Guarda las misiones en una base SQLite propia y, además, envía eventos al `epn-event-manager` mediante `POST /events`.
+CRUD personal de misiones espaciales para el taller de mantenimiento de software. Guarda datos en SQLite, expone endpoints REST, registra auditoría estructurada y envía eventos al `epn-event-manager` cuando está disponible.
 
-## Ejecución
+## 1. Requisitos cubiertos
+
+| Tipo de mantenimiento | Implementación |
+|---|---|
+| Correctivo | Manejo de errores con middleware, respuestas HTTP claras, eliminación de datos inválidos y logs estructurados con niveles `INFO`, `WARN` y `ERROR`. |
+| Adaptativo | Configuración por variables de entorno, API-Key obligatoria mediante `X-FIS-EPN-KEY` y CORS configurable. |
+| Perfectivo | Filtros de consulta, documentación OpenAPI, colección Postman y pruebas automatizadas con `node:test`. |
+| Preventivo | Validación de campos obligatorios, longitudes máximas, fecha `YYYY-MM-DD`, estados permitidos, patrones maliciosos básicos y consultas SQL preparadas. |
+
+## 2. Ejecución
 
 ```bash
 npm install
+cp .env.example .env
 npm start
 ```
 
@@ -15,7 +25,32 @@ Abrir en el navegador:
 http://localhost:4000
 ```
 
-## Base de datos del CRUD
+Si también se usa el Hub de eventos, iniciar primero `epn-event-manager` en el puerto `3000`.
+
+## 3. Configuración principal
+
+El archivo `.env.example` contiene los valores necesarios:
+
+```env
+PORT=4000
+API_KEY_HEADER=X-FIS-EPN-KEY
+FIS_EPN_API_KEY=fis-epn-2025
+REQUIRE_API_KEY=true
+MISSIONS_DB_PATH=./db/missions.sqlite
+LOG_FILE_PATH=./logs/audit.log
+EVENT_MANAGER_URL=http://localhost:3000/events
+EVENT_MANAGER_HEALTH_URL=http://localhost:3000/health
+SEND_EVENTS=true
+CORS_ORIGINS=*
+```
+
+La clave por defecto para pruebas locales es:
+
+```txt
+X-FIS-EPN-KEY: fis-epn-2025
+```
+
+## 4. Base de datos
 
 Archivo generado automáticamente:
 
@@ -29,19 +64,88 @@ Tabla principal:
 missions
 ```
 
-## Endpoints del CRUD
+Índices creados:
 
-| Método | Endpoint | Descripción |
-|---|---|---|
-| GET | `/health` | Verifica API, BD y conexión con el Hub |
-| GET | `/missions` | Lista todas las misiones guardadas en SQLite |
-| GET | `/missions/:id` | Consulta una misión por ID |
-| POST | `/missions` | Crea una misión |
-| PUT | `/missions/:id` | Actualiza una misión |
-| DELETE | `/missions/:id` | Elimina una misión |
-| GET | `/missions/stats` | Métricas del CRUD |
+```txt
+idx_missions_status
+idx_missions_agency
+idx_missions_type
+```
 
-## Checks de calidad
+## 5. Endpoints
+
+| Método | Endpoint | Seguridad | Descripción |
+|---|---|---|---|
+| GET | `/health` | Pública | Verifica API, BD y conexión con el Hub. |
+| GET | `/missions` | API-Key | Lista misiones. Acepta filtros `status`, `agency`, `type`, `q`, `limit`, `offset`. |
+| GET | `/missions/:id` | API-Key | Consulta una misión por ID. |
+| POST | `/missions` | API-Key | Crea una misión validando entrada. |
+| PUT | `/missions/:id` | API-Key | Actualiza una misión existente. |
+| DELETE | `/missions/:id` | API-Key | Elimina físicamente una misión. |
+| GET | `/missions/stats` | API-Key | Muestra métricas del CRUD. |
+
+## 6. Ejemplos rápidos con curl
+
+Crear una misión:
+
+```bash
+curl -X POST http://localhost:4000/missions \
+  -H "Content-Type: application/json" \
+  -H "X-FIS-EPN-KEY: fis-epn-2025" \
+  -d '{
+    "name":"Artemis IV",
+    "agency":"NASA",
+    "type":"Lunar",
+    "date":"2028-09-01",
+    "status":"planned"
+  }'
+```
+
+Listar con filtro:
+
+```bash
+curl "http://localhost:4000/missions?status=planned&q=artemis" \
+  -H "X-FIS-EPN-KEY: fis-epn-2025"
+```
+
+Actualizar:
+
+```bash
+curl -X PUT http://localhost:4000/missions/MSN-0001 \
+  -H "Content-Type: application/json" \
+  -H "X-FIS-EPN-KEY: fis-epn-2025" \
+  -d '{"status":"active"}'
+```
+
+Eliminar:
+
+```bash
+curl -X DELETE http://localhost:4000/missions/MSN-0001 \
+  -H "X-FIS-EPN-KEY: fis-epn-2025"
+```
+
+## 7. Logs de auditoría
+
+Cada acción importante registra una línea JSON en consola y en:
+
+```txt
+logs/audit.log
+```
+
+Ejemplo:
+
+```json
+{"timestamp":"2026-05-28T10:00:00.000Z","level":"INFO","service":"missions-crud","message":"AUDIT_CREATE","action":"CREATE","method":"POST","path":"/missions","missionId":"MSN-0001"}
+```
+
+## 8. Documentación de API
+
+- OpenAPI: `docs/openapi.json`
+- Postman: `postman/missions-crud.postman_collection.json`
+
+Para visualizar OpenAPI se puede copiar el contenido de `docs/openapi.json` en Swagger Editor.
+
+## 9. Checks de calidad
 
 ```bash
 npm run check
@@ -49,12 +153,14 @@ npm run lint
 npm test
 ```
 
-- `check`: verifica sintaxis de `server.js`.
-- `lint`: análisis estático básico sin ejecutar el servidor.
-- `test`: pruebas unitarias con `node:test`.
+Qué valida cada comando:
 
-## Mantenimiento perfectivo aplicado
+- `check`: revisión de sintaxis de `server.js`.
+- `lint`: análisis estático con ESLint.
+- `test`: pruebas unitarias y funcionales del CRUD con `node:test`.
 
-Antes, las misiones se guardaban en memoria del servidor. Al reiniciar el backend, se perdían y la interfaz no podía recuperar lo creado previamente. Como mejora perfectiva, se agregó persistencia real con SQLite, endpoints completos de consulta y estadísticas, manteniendo la integración con el Event Manager.
+## 10. Diagnóstico resumido
 
-> Nota: este CRUD usa el módulo nativo `node:sqlite`, por eso debe ejecutarse con Node.js 22 o superior.
+Antes de la corrección, el CRUD ya tenía Express, SQLite, endpoints CRUD, validación básica y una interfaz funcional. Las brechas principales eran: ausencia de API-Key, logs no estructurados, poca cobertura de pruebas, falta de documentación OpenAPI/Postman, ausencia de filtros reales en el backend y exposición innecesaria de la ruta física de la base en `/health`.
+
+Después de la corrección, el módulo queda más robusto, observable, configurable y defendible para una demostración en vivo.

@@ -1,0 +1,69 @@
+{
+  "info": {
+    "name": "Space Mission Control - Missions CRUD",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "apiKey", "value": "fis-epn-2025" },
+    { "key": "missionId", "value": "MSN-0001" }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "X-FIS-EPN-KEY", "type": "string" },
+      { "key": "value", "value": "{{apiKey}}", "type": "string" },
+      { "key": "in", "value": "header", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "Listar misiones",
+      "request": { "method": "GET", "url": "{{baseUrl}}/missions" }
+    },
+    {
+      "name": "Listar por filtro",
+      "request": { "method": "GET", "url": "{{baseUrl}}/missions?status=planned&q=artemis" }
+    },
+    {
+      "name": "Crear misión",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/missions",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Artemis IV\",\n  \"agency\": \"NASA\",\n  \"type\": \"Lunar\",\n  \"vehicle\": \"SLS Block 1\",\n  \"date\": \"2028-09-01\",\n  \"status\": \"planned\",\n  \"crew\": \"Tripulación lunar\",\n  \"description\": \"Exploración lunar segura\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Consultar por ID",
+      "request": { "method": "GET", "url": "{{baseUrl}}/missions/{{missionId}}" }
+    },
+    {
+      "name": "Actualizar misión",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/missions/{{missionId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"active\",\n  \"description\": \"Misión activada desde prueba de mantenimiento\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Eliminar misión",
+      "request": { "method": "DELETE", "url": "{{baseUrl}}/missions/{{missionId}}" }
+    },
+    {
+      "name": "Estadísticas",
+      "request": { "method": "GET", "url": "{{baseUrl}}/missions/stats" }
+    }
+  ]
+}
