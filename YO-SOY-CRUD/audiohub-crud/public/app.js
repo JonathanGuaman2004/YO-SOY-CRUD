@@ -32,6 +32,7 @@ async function checkHealth() {
     const data = await r.json();
     const dot  = document.getElementById('hubDot');
     const lbl  = document.getElementById('hubLabel');
+
     if (data.hub === 'connected') {
       dot.className   = 'hub-dot online';
       lbl.textContent = 'Event Manager conectado';
@@ -40,7 +41,7 @@ async function checkHealth() {
       lbl.textContent = 'Event Manager offline';
     }
   } catch {
-    document.getElementById('hubDot').className    = 'hub-dot offline';
+    document.getElementById('hubDot').className = 'hub-dot offline';
     document.getElementById('hubLabel').textContent = 'Sin conexión';
   }
 }
@@ -60,6 +61,7 @@ async function cargarAudios() {
 
 function renderizarTabla(list) {
   tabla.innerHTML = '';
+
   if (!list || list.length === 0) {
     tabla.innerHTML =
       '<tr><td colspan="4" class="text-center py-5">' +
@@ -70,8 +72,10 @@ function renderizarTabla(list) {
       '</td></tr>';
     return;
   }
+
   list.forEach(function(item) {
     const tipoTexto = item.tipo === 'podcast' ? '🎙️ Podcast' : '🎵 Canción';
+
     tabla.innerHTML +=
       '<tr>' +
       '<td>' + tipoTexto + '</td>' +
@@ -92,19 +96,37 @@ async function submitForm() {
   const autor  = document.getElementById('autor').value.trim();
   const tipo   = document.getElementById('tipo').value;
 
-  if (!titulo || !autor) { toast('Título y autor son obligatorios', 'error'); return; }
+  if (!titulo || !autor) {
+    toast('Título y autor son obligatorios', 'error');
+    return;
+  }
 
   const body = { titulo, autor, tipo };
 
   try {
     let r;
+
     if (!editId) {
-      r = await fetch(API, { method: 'POST', headers: HEADERS, body: JSON.stringify(body) });
+      r = await fetch(API, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify(body),
+      });
     } else {
-      r = await fetch(`${API}/${editId}`, { method: 'PUT', headers: HEADERS, body: JSON.stringify(body) });
+      r = await fetch(`${API}/${editId}`, {
+        method: 'PUT',
+        headers: HEADERS,
+        body: JSON.stringify(body),
+      });
     }
+
     const data = await r.json();
-    if (!r.ok) { toast(data.error || 'Error en la solicitud', 'error'); return; }
+
+    if (!r.ok) {
+      toast(data.error || 'Error en la solicitud', 'error');
+      return;
+    }
+
     toast(editId ? `"${data.titulo}" actualizado ✔` : `"${data.titulo}" añadido 🎵`);
     resetForm();
     await cargarAudios();
@@ -120,13 +142,20 @@ function resetForm() {
   document.getElementById('autor').value   = '';
   document.getElementById('tipo').value    = 'cancion';
   document.getElementById('formTitle').textContent = 'Añadir a la librería';
+
   btnSubmit.innerHTML = '<i class="bi bi-collection-play-fill me-2"></i> Guardar en Biblioteca';
   btnSubmit.classList.remove('btn-warning');
   btnSubmit.classList.add('btn-neon');
   btnCancel.style.display = 'none';
 }
 
-function cancelEdit() { resetForm(); }
+function cancelEdit() {
+  resetForm();
+}
+
+// Funciones usadas desde el HTML
+window.submitForm = submitForm;
+window.cancelEdit = cancelEdit;
 
 // ─── Editar ───────────────────────────────────────────────────────────────────
 
@@ -134,7 +163,11 @@ window.prepararEdicion = async function(id) {
   try {
     const r    = await fetch(`${API}/${id}`, { headers: HEADERS });
     const data = await r.json();
-    if (!r.ok) { toast('Audio no encontrado', 'error'); return; }
+
+    if (!r.ok) {
+      toast('Audio no encontrado', 'error');
+      return;
+    }
 
     document.getElementById('editId').value  = data.id;
     document.getElementById('titulo').value  = data.titulo;
@@ -146,20 +179,35 @@ window.prepararEdicion = async function(id) {
     btnSubmit.classList.remove('btn-neon');
     btnSubmit.classList.add('btn-warning');
     btnCancel.style.display = 'inline-block';
+
     document.querySelector('.glass-card').scrollIntoView({ behavior: 'smooth' });
-  } catch { toast('Error al cargar el audio', 'error'); }
+  } catch {
+    toast('Error al cargar el audio', 'error');
+  }
 };
 
 // ─── Eliminar ─────────────────────────────────────────────────────────────────
 
 window.eliminarAudio = async function(id) {
   if (!confirm('¿Eliminar este audio?')) return;
+
   try {
-    const r = await fetch(`${API}/${id}`, { method: 'DELETE', headers: HEADERS });
-    if (!r.ok) { const d = await r.json(); toast(d.error || 'Error al eliminar', 'error'); return; }
+    const r = await fetch(`${API}/${id}`, {
+      method: 'DELETE',
+      headers: HEADERS,
+    });
+
+    if (!r.ok) {
+      const d = await r.json();
+      toast(d.error || 'Error al eliminar', 'error');
+      return;
+    }
+
     toast('Audio eliminado 🗑');
     await cargarAudios();
-  } catch { toast('Error de conexión', 'error'); }
+  } catch {
+    toast('Error de conexión', 'error');
+  }
 };
 
 // ─── Botón Refrescar ──────────────────────────────────────────────────────────
