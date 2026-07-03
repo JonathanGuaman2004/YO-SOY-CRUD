@@ -36,9 +36,15 @@ function log(level, message, meta = {}) {
     message,
     ...meta,
   };
+
   const line = JSON.stringify(entry);
   console.log(line);
-  try { fs.appendFileSync(LOG_PATH, line + '\n'); } catch {}
+
+  try {
+    fs.appendFileSync(LOG_PATH, line + '\n');
+  } catch (error) {
+    console.warn('No se pudo escribir en el archivo de log:', error.message);
+  }
 }
 
 const logger = {
