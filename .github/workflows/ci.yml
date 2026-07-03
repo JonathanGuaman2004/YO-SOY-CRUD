@@ -1,0 +1,88 @@
+name: CI - YO-SOY-CRUD
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+  push:
+    branches:
+      - develop
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  epn-event-manager:
+    name: EPN Event Manager - Check, Lint, Build, Test and Coverage
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: YO-SOY-CRUD/epn-event-manager
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        run: npm run check
+
+      - name: Linting
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Coverage
+        run: npm run test:cov
+
+  crud-projects:
+    name: CRUD Projects - Check, Lint and Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - missions-crud
+          - esports-crud
+          - pets-crud
+          - audiohub-crud
+
+    defaults:
+      run:
+        working-directory: YO-SOY-CRUD/${{ matrix.project }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Syntax and quality check
+        run: npm run check
+
+      - name: Linting
+        run: npm run lint
+
+      - name: Automated tests
+        run: npm test
