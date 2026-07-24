@@ -15,22 +15,6 @@ type EventRecordForTest = Record<
   string | number | boolean | Record<string, unknown> | undefined
 >;
 
-type EventsListResponseForTest = {
-  data: Array<
-    EventRecordForTest & {
-      _table?: string;
-      _eventDate?: string;
-    }
-  >;
-  pagination: {
-    total: number;
-    limit: number;
-    offset: number;
-    returned: number;
-    hasNextPage: boolean;
-  };
-};
-
 type MockRepository = {
   create: jest.MockedFunction<(data: EventRecordForTest) => EventRecordForTest>;
   save: jest.MockedFunction<
@@ -444,6 +428,8 @@ describe('EventsService', () => {
         entity: 'EntityA',
         action: 'CREATE',
         title: 'Evento antiguo',
+        description: 'Evento CREATE',
+        payload: JSON.stringify({ id: 'A-001' }),
         recorded_at: '2026-05-17T10:00:00.000Z',
       },
     ]);
@@ -455,6 +441,8 @@ describe('EventsService', () => {
         entity: 'EntityB',
         action: 'UPDATE',
         title: 'Evento intermedio',
+        description: 'Evento UPDATE',
+        payload: JSON.stringify({ id: 'B-001' }),
         timestamp: '2026-05-17T11:00:00.000Z',
       },
     ]);
@@ -468,14 +456,16 @@ describe('EventsService', () => {
         entity: 'EntityC',
         action: 'QUERY',
         title: 'Evento reciente',
+        description: 'Evento QUERY',
+        payload: JSON.stringify({ query: 'prueba' }),
         event_date: '2026-05-17T12:00:00.000Z',
       },
     ]);
 
-    const result = (await service.findAll({
+    const result = await service.findAll({
       limit: '2',
       offset: '0',
-    })) as EventsListResponseForTest;
+    });
 
     expect(result.data).toHaveLength(2);
 
@@ -487,20 +477,41 @@ describe('EventsService', () => {
       hasNextPage: true,
     });
 
-    expect(result.data[0]).toEqual(
-      expect.objectContaining({
-        _table: 'query_events',
-        _eventDate: '2026-05-17T12:00:00.000Z',
-      }),
-    );
+    expect(result.data[0]).toEqual({
+      id: 3,
+      source: 'SystemC',
+      entity: 'EntityC',
+      action: 'QUERY',
+      title: 'Evento reciente',
+      description: 'Evento QUERY',
+      payload: {
+        query: 'prueba',
+      },
+      occurredAt: '2026-05-17T12:00:00.000Z',
+    });
 
-    expect(result.data[1]).toEqual(
-      expect.objectContaining({
-        _table: 'update_events',
-        _eventDate: '2026-05-17T11:00:00.000Z',
-      }),
-    );
+    expect(result.data[1]).toEqual({
+      id: 2,
+      source: 'SystemB',
+      entity: 'EntityB',
+      action: 'UPDATE',
+      title: 'Evento intermedio',
+      description: 'Evento UPDATE',
+      payload: {
+        id: 'B-001',
+      },
+      occurredAt: '2026-05-17T11:00:00.000Z',
+    });
+
+    expect(result.data[0]).not.toHaveProperty('_table');
+    expect(result.data[0]).not.toHaveProperty('_eventDate');
+    expect(result.data[0]).not.toHaveProperty('event_date');
+
+    expect(result.data[1]).not.toHaveProperty('_table');
+    expect(result.data[1]).not.toHaveProperty('_eventDate');
+    expect(result.data[1]).not.toHaveProperty('timestamp');
   });
+
   it('debe filtrar eventos por source y action', async () => {
     createRepo.find.mockResolvedValue([
       {
@@ -509,6 +520,8 @@ describe('EventsService', () => {
         entity: 'Mission',
         action: 'CREATE',
         title: 'Crear misión',
+        description: 'Misión creada',
+        payload: JSON.stringify({ id: 'A-001' }),
         recorded_at: '2026-05-17T10:00:00.000Z',
       },
       {
@@ -517,6 +530,8 @@ describe('EventsService', () => {
         entity: 'Mission',
         action: 'CREATE',
         title: 'Crear externo',
+        description: 'Registro externo',
+        payload: JSON.stringify({ id: 'B-001' }),
         recorded_at: '2026-05-17T11:00:00.000Z',
       },
     ]);
@@ -528,6 +543,8 @@ describe('EventsService', () => {
         entity: 'Mission',
         action: 'UPDATE',
         title: 'Actualizar misión',
+        description: 'Misión actualizada',
+        payload: JSON.stringify({ id: 'A-001' }),
         timestamp: '2026-05-17T12:00:00.000Z',
       },
     ]);
@@ -535,20 +552,202 @@ describe('EventsService', () => {
     deleteRepo.find.mockResolvedValue([]);
     queryRepo.find.mockResolvedValue([]);
 
-    const result = (await service.findAll({
+    const result = await service.findAll({
       source: 'SpaceMissionControl',
       action: 'CREATE',
-    })) as EventsListResponseForTest;
+    });
 
     expect(result.data).toHaveLength(1);
 
-    expect(result.data[0]).toEqual(
-      expect.objectContaining({
-        source: 'SpaceMissionControl',
-        action: 'CREATE',
-      }),
-    );
+    expect(result.data[0]).toEqual({
+      id: 1,
+      source: 'SpaceMissionControl',
+      entity: 'Mission',
+      action: 'CREATE',
+      title: 'Crear misión',
+      description: 'Misión creada',
+      payload: {
+        id: 'A-001',
+      },
+      occurredAt: '2026-05-17T10:00:00.000Z',
+    });
 
     expect(result.pagination.total).toBe(1);
+  });
+
+  it('debe usar el mismo contrato para CREATE, UPDATE, DELETE y QUERY', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SystemA',
+        entity: 'EntityA',
+        action: 'CREATE',
+        title: 'Crear',
+        description: 'Descripción CREATE',
+        payload: '{"id":"A-001"}',
+        recorded_at: '2026-05-17T10:00:00.000Z',
+      },
+    ]);
+
+    updateRepo.find.mockResolvedValue([
+      {
+        id: 2,
+        source: 'SystemA',
+        entity: 'EntityA',
+        action: 'UPDATE',
+        title: 'Actualizar',
+        description: 'Descripción UPDATE',
+        payload: '{"id":"A-001"}',
+        timestamp: '2026-05-17T11:00:00.000Z',
+      },
+    ]);
+
+    deleteRepo.find.mockResolvedValue([
+      {
+        id: 3,
+        source: 'SystemA',
+        entity: 'EntityA',
+        action: 'DELETE',
+        title: 'Eliminar',
+        description: 'Descripción DELETE',
+        payload: '{"id":"A-001"}',
+        createdAt: '2026-05-17T12:00:00.000Z',
+      },
+    ]);
+
+    queryRepo.find.mockResolvedValue([
+      {
+        id: 4,
+        source: 'SystemA',
+        entity: 'EntityA',
+        action: 'QUERY',
+        title: 'Consultar',
+        description: 'Descripción QUERY',
+        payload: '{"query":"prueba"}',
+        query_term: 'prueba',
+        event_date: '2026-05-17T13:00:00.000Z',
+      },
+    ]);
+
+    const result = await service.findAll();
+
+    expect(result.data).toHaveLength(4);
+
+    for (const event of result.data) {
+      expect(event).toEqual({
+        id: expect.any(Number),
+        source: expect.any(String),
+        entity: expect.any(String),
+        action: expect.any(String),
+        title: expect.any(String),
+        description: expect.any(String),
+        payload: expect.any(Object),
+        occurredAt: expect.any(String),
+      });
+
+      expect(event).not.toHaveProperty('_table');
+      expect(event).not.toHaveProperty('_eventDate');
+      expect(event).not.toHaveProperty('recorded_at');
+      expect(event).not.toHaveProperty('timestamp');
+      expect(event).not.toHaveProperty('createdAt');
+      expect(event).not.toHaveProperty('event_date');
+      expect(event).not.toHaveProperty('query_term');
+    }
+  });
+
+  it('debe manejar un payload malformado sin generar error', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SystemA',
+        entity: 'EntityA',
+        action: 'CREATE',
+        title: 'Evento con payload inválido',
+        description: '',
+        payload: '{json-invalido',
+        recorded_at: '2026-05-17T10:00:00.000Z',
+      },
+    ]);
+
+    updateRepo.find.mockResolvedValue([]);
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const result = await service.findAll();
+
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].payload).toEqual({});
+    expect(result.data[0].occurredAt).toBe('2026-05-17T10:00:00.000Z');
+  });
+
+  it('debe aplicar una fecha segura cuando la fecha almacenada es inválida', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SystemA',
+        entity: 'EntityA',
+        action: 'CREATE',
+        title: 'Evento con fecha inválida',
+        description: '',
+        payload: '{}',
+        recorded_at: 'fecha-invalida',
+      },
+    ]);
+
+    updateRepo.find.mockResolvedValue([]);
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const result = await service.findAll();
+
+    expect(result.data[0].occurredAt).toBe('1970-01-01T00:00:00.000Z');
+  });
+
+  it('debe consultar eventos normalizados por source', async () => {
+    createRepo.findBy.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SpaceMissionControl',
+        entity: 'Mission',
+        action: 'CREATE',
+        title: 'Crear misión',
+        description: 'Misión creada',
+        payload: '{"id":"MSN-0001"}',
+        recorded_at: '2026-05-17T10:00:00.000Z',
+      },
+    ]);
+
+    updateRepo.findBy.mockResolvedValue([]);
+    deleteRepo.findBy.mockResolvedValue([]);
+    queryRepo.findBy.mockResolvedValue([]);
+
+    const result = await service.findBySource('SpaceMissionControl');
+
+    expect(result).toHaveLength(1);
+
+    expect(result[0]).toEqual({
+      id: 1,
+      source: 'SpaceMissionControl',
+      entity: 'Mission',
+      action: 'CREATE',
+      title: 'Crear misión',
+      description: 'Misión creada',
+      payload: {
+        id: 'MSN-0001',
+      },
+      occurredAt: '2026-05-17T10:00:00.000Z',
+    });
+  });
+
+  it('debe rechazar una consulta con source vacío', async () => {
+    await expect(service.findBySource('   ')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('debe rechazar una consulta con entity vacía', async () => {
+    await expect(service.findByEntity('   ')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

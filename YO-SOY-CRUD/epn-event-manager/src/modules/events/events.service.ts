@@ -1,22 +1,24 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CreateEventDto } from './dto/create-event.dto';
+
 import { CreateEventEntity } from '../../database/entities/create-event.entity';
-import { UpdateEventEntity } from '../../database/entities/update-event.entity';
 import { DeleteEventEntity } from '../../database/entities/delete-event.entity';
 import { QueryEventEntity } from '../../database/entities/query-event.entity';
+import { UpdateEventEntity } from '../../database/entities/update-event.entity';
+import { CreateEventDto } from './dto/create-event.dto';
+import type { EventResponseDto } from './dto/event-response.dto';
 
-export interface StoredEvent {
-  [key: string]: unknown;
-  _table?: string;
-  _eventDate?: string;
-}
+type PersistedEvent =
+  | CreateEventEntity
+  | UpdateEventEntity
+  | DeleteEventEntity
+  | QueryEventEntity;
 
 type EventQuery = Record<string, string | undefined>;
 
 type PaginatedEventsResponse = {
-  data: StoredEvent[];
+  data: EventResponseDto[];
   pagination: {
     total: number;
     limit: number;
@@ -106,7 +108,7 @@ export class EventsService {
     return this.paginateEvents(filteredEvents, query);
   }
 
-  async findBySource(source: string): Promise<object[]> {
+  async findBySource(source: string): Promise<EventResponseDto[]> {
     const safeSource = this.clean(source);
     if (!safeSource) throw new BadRequestException('source inválido');
 
@@ -119,7 +121,7 @@ export class EventsService {
   }
 
   //
-  async findByEntity(entity: string): Promise<object[]> {
+  async findByEntity(entity: string): Promise<EventResponseDto[]> {
     const safeEntity = this.clean(entity);
     if (!safeEntity) throw new BadRequestException('entity inválido');
 
@@ -139,13 +141,13 @@ export class EventsService {
     const deletes = await this.deleteRepo.find();
     const queries = await this.queryRepo.find();
 
-    const events: StoredEvent[] = this.normalizeEvents(
+    const events: EventResponseDto[] = this.normalizeEvents(
       creates,
       updates,
       deletes,
       queries,
     );
-    const filteredEvents: StoredEvent[] = this.filterEvents(events, query);
+    const filteredEvents: EventResponseDto[] = this.filterEvents(events, query);
 
     const byAction: Record<string, number> = {};
     const bySource: Record<string, number> = {};
@@ -162,7 +164,7 @@ export class EventsService {
       const entity = this.clean(event.entity) || 'UNKNOWN';
       byEntity[entity] = (byEntity[entity] || 0) + 1;
 
-      const eventDate = String(event._eventDate ?? '');
+      const eventDate = String(event.occurredAt ?? '');
       const day = eventDate.length >= 10 ? eventDate.slice(0, 10) : 'UNKNOWN';
       if (day !== 'UNKNOWN') {
         byDay[day] = (byDay[day] || 0) + 1;
@@ -214,9 +216,9 @@ export class EventsService {
   }
 
   private filterEvents(
-    events: StoredEvent[],
+    events: EventResponseDto[],
     query: EventQuery,
-  ): StoredEvent[] {
+  ): EventResponseDto[] {
     const source = this.clean(query.source);
     const entity = this.clean(query.entity);
     const action = this.clean(query.action).toUpperCase();
@@ -224,23 +226,27 @@ export class EventsService {
     const to = this.clean(query.to);
 
     return events.filter((event) => {
-      if (source && this.clean(event.source) !== source) return false;
-      if (entity && this.clean(event.entity) !== entity) return false;
+      if (source && event.source !== source) return false;
+      if (entity && event.entity !== entity) return false;
 
-      if (action && this.clean(event.action).toUpperCase() !== action) {
+      if (action && event.action.toUpperCase() !== action) {
         return false;
       }
 
-      const eventTime = Date.parse(event._eventDate ?? '') || 0;
+      const eventTime = Date.parse(event.occurredAt) || 0;
 
       if (from) {
         const fromTime = Date.parse(`${from}T00:00:00.000Z`);
-        if (!Number.isNaN(fromTime) && eventTime < fromTime) return false;
+        if (!Number.isNaN(fromTime) && eventTime < fromTime) {
+          return false;
+        }
       }
 
       if (to) {
         const toTime = Date.parse(`${to}T23:59:59.999Z`);
-        if (!Number.isNaN(toTime) && eventTime > toTime) return false;
+        if (!Number.isNaN(toTime) && eventTime > toTime) {
+          return false;
+        }
       }
 
       return true;
@@ -248,7 +254,7 @@ export class EventsService {
   }
 
   private paginateEvents(
-    events: StoredEvent[],
+    events: EventResponseDto[],
     query: EventQuery,
   ): PaginatedEventsResponse {
     const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
@@ -273,35 +279,65 @@ export class EventsService {
     updates: UpdateEventEntity[],
     deletes: DeleteEventEntity[],
     queries: QueryEventEntity[],
-  ): StoredEvent[] {
-    const merged: StoredEvent[] = [
-      ...creates.map((e) => ({
-        ...e,
-        _table: 'create_events',
-        _eventDate: e.recorded_at,
-      })),
-      ...updates.map((e) => ({
-        ...e,
-        _table: 'update_events',
-        _eventDate: e.timestamp,
-      })),
-      ...deletes.map((e) => ({
-        ...e,
-        _table: 'delete_events',
-        _eventDate: e.createdAt,
-      })),
-      ...queries.map((e) => ({
-        ...e,
-        _table: 'query_events',
-        _eventDate: e.event_date,
-      })),
+  ): EventResponseDto[] {
+    const merged: EventResponseDto[] = [
+      ...creates.map((event) => this.toEventResponse(event, event.recorded_at)),
+      ...updates.map((event) => this.toEventResponse(event, event.timestamp)),
+      ...deletes.map((event) => this.toEventResponse(event, event.createdAt)),
+      ...queries.map((event) => this.toEventResponse(event, event.event_date)),
     ];
 
-    return merged.sort((a, b) => {
-      const ta = Date.parse(String(a._eventDate ?? '')) || 0;
-      const tb = Date.parse(String(b._eventDate ?? '')) || 0;
-      return tb - ta;
-    });
+    return merged.sort(
+      (a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt),
+    );
+  }
+
+  private toEventResponse(
+    event: PersistedEvent,
+    dateValue: unknown,
+  ): EventResponseDto {
+    return {
+      id: Number(event.id),
+      source: this.clean(event.source),
+      entity: this.clean(event.entity),
+      action: this.clean(event.action).toUpperCase(),
+      title: this.clean(event.title),
+      description: this.clean(event.description),
+      payload: this.parsePayload(event.payload),
+      occurredAt: this.normalizeDate(dateValue),
+    };
+  }
+
+  private parsePayload(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    if (typeof value !== 'string' || !value.trim()) {
+      return {};
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(value);
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+
+      return {};
+    } catch {
+      return {};
+    }
+  }
+
+  private normalizeDate(value: unknown): string {
+    const timestamp = Date.parse(this.clean(value));
+
+    if (Number.isNaN(timestamp)) {
+      return new Date(0).toISOString();
+    }
+
+    return new Date(timestamp).toISOString();
   }
 
   // private clean(value: unknown): string {
