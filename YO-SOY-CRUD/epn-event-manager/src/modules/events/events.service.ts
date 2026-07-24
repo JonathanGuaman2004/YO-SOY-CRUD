@@ -133,19 +133,75 @@ export class EventsService {
     return this.normalizeEvents(creates, updates, deletes, queries);
   }
 
-  async getStats(): Promise<object> {
-    const createCount = await this.createRepo.count();
-    const updateCount = await this.updateRepo.count();
-    const deleteCount = await this.deleteRepo.count();
-    const queryCount = await this.queryRepo.count();
+  async getStats(query: EventQuery = {}): Promise<object> {
+    this.validateDateParams(query);
+
+    const creates = await this.createRepo.find();
+    const updates = await this.updateRepo.find();
+    const deletes = await this.deleteRepo.find();
+    const queries = await this.queryRepo.find();
+
+    const events: EventResponseDto[] = this.normalizeEvents(
+      creates,
+      updates,
+      deletes,
+      queries,
+    );
+    const filteredEvents: EventResponseDto[] = this.filterEvents(events, query);
+
+    const byAction: Record<string, number> = {};
+    const bySource: Record<string, number> = {};
+    const byEntity: Record<string, number> = {};
+    const byDay: Record<string, number> = {};
+
+    for (const event of filteredEvents) {
+      const action = this.clean(event.action).toUpperCase() || 'UNKNOWN';
+      byAction[action] = (byAction[action] || 0) + 1;
+
+      const source = this.clean(event.source) || 'UNKNOWN';
+      bySource[source] = (bySource[source] || 0) + 1;
+
+      const entity = this.clean(event.entity) || 'UNKNOWN';
+      byEntity[entity] = (byEntity[entity] || 0) + 1;
+
+      const eventDate = String(event.occurredAt ?? '');
+      const day = eventDate.length >= 10 ? eventDate.slice(0, 10) : 'UNKNOWN';
+      if (day !== 'UNKNOWN') {
+        byDay[day] = (byDay[day] || 0) + 1;
+      }
+    }
+
+    const total = filteredEvents.length;
 
     return {
-      create: createCount,
-      update: updateCount,
-      delete: deleteCount,
-      query: queryCount,
-      total: createCount + updateCount + deleteCount + queryCount,
+      byAction: {
+        create: byAction['CREATE'] || 0,
+        update: byAction['UPDATE'] || 0,
+        delete: byAction['DELETE'] || 0,
+        query: byAction['QUERY'] || 0,
+        total,
+      },
+      bySource,
+      byEntity,
+      byDay,
     };
+  }
+
+  private validateDateParams(query: EventQuery): void {
+    const from = this.clean(query.from);
+    const to = this.clean(query.to);
+
+    if (from && Number.isNaN(Date.parse(from))) {
+      throw new BadRequestException(
+        `Fecha inválida en 'from': "${from}". Use formato ISO (YYYY-MM-DD).`,
+      );
+    }
+
+    if (to && Number.isNaN(Date.parse(to))) {
+      throw new BadRequestException(
+        `Fecha inválida en 'to': "${to}". Use formato ISO (YYYY-MM-DD).`,
+      );
+    }
   }
 
   private validatePayloadForAction(dto: CreateEventDto, action: string): void {

@@ -244,20 +244,179 @@ describe('EventsService', () => {
     expect(deleteRepo.save).toHaveBeenCalledTimes(1);
   });
 
-  it('debe calcular estadísticas incluyendo QUERY', async () => {
-    createRepo.count.mockResolvedValue(2);
-    updateRepo.count.mockResolvedValue(1);
-    deleteRepo.count.mockResolvedValue(1);
-    queryRepo.count.mockResolvedValue(3);
+  it('TC-EM-02-001: debe devolver estadísticas agrupadas por acción, source, entity y día', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'CREATE',
+        title: 'Crear 1',
+        recorded_at: '2026-07-01T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        source: 'SourceB',
+        entity: 'EntityY',
+        action: 'CREATE',
+        title: 'Crear 2',
+        recorded_at: '2026-07-02T10:00:00.000Z',
+      },
+    ]);
+
+    updateRepo.find.mockResolvedValue([
+      {
+        id: 3,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'UPDATE',
+        title: 'Actualizar 1',
+        timestamp: '2026-07-01T11:00:00.000Z',
+      },
+    ]);
+
+    deleteRepo.find.mockResolvedValue([
+      {
+        id: 4,
+        source: 'SourceB',
+        entity: 'EntityY',
+        action: 'DELETE',
+        title: 'Eliminar 1',
+        createdAt: '2026-07-02T11:00:00.000Z',
+      },
+    ]);
+
+    queryRepo.find.mockResolvedValue([
+      {
+        id: 5,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'QUERY',
+        title: 'Consultar 1',
+        event_date: '2026-07-01T12:00:00.000Z',
+      },
+      {
+        id: 6,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'QUERY',
+        title: 'Consultar 2',
+        event_date: '2026-07-03T10:00:00.000Z',
+      },
+    ]);
 
     const stats = await service.getStats();
 
     expect(stats).toEqual({
-      create: 2,
-      update: 1,
-      delete: 1,
-      query: 3,
-      total: 7,
+      byAction: { create: 2, update: 1, delete: 1, query: 2, total: 6 },
+      bySource: { SourceA: 4, SourceB: 2 },
+      byEntity: { EntityX: 4, EntityY: 2 },
+      byDay: {
+        '2026-07-01': 3,
+        '2026-07-02': 2,
+        '2026-07-03': 1,
+      },
+    });
+  });
+
+  it('TC-EM-02-002: debe filtrar estadísticas por source', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'CREATE',
+        title: 'Crear A',
+        recorded_at: '2026-07-01T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        source: 'SourceB',
+        entity: 'EntityY',
+        action: 'CREATE',
+        title: 'Crear B',
+        recorded_at: '2026-07-02T10:00:00.000Z',
+      },
+    ]);
+
+    updateRepo.find.mockResolvedValue([]);
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const stats = await service.getStats({ source: 'SourceA' });
+
+    expect(stats).toEqual({
+      byAction: { create: 1, update: 0, delete: 0, query: 0, total: 1 },
+      bySource: { SourceA: 1 },
+      byEntity: { EntityX: 1 },
+      byDay: { '2026-07-01': 1 },
+    });
+  });
+
+  it('TC-EM-02-003: debe filtrar estadísticas por rango de fechas', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'CREATE',
+        title: 'Crear viejo',
+        recorded_at: '2026-06-15T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'CREATE',
+        title: 'Crear Julio',
+        recorded_at: '2026-07-15T10:00:00.000Z',
+      },
+      {
+        id: 3,
+        source: 'SourceA',
+        entity: 'EntityX',
+        action: 'CREATE',
+        title: 'Crear futuro',
+        recorded_at: '2026-08-15T10:00:00.000Z',
+      },
+    ]);
+
+    updateRepo.find.mockResolvedValue([]);
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const stats = await service.getStats({
+      from: '2026-07-01',
+      to: '2026-07-31',
+    });
+
+    expect(stats).toEqual({
+      byAction: { create: 1, update: 0, delete: 0, query: 0, total: 1 },
+      bySource: { SourceA: 1 },
+      byEntity: { EntityX: 1 },
+      byDay: { '2026-07-15': 1 },
+    });
+  });
+
+  it('TC-EM-02-004: debe rechazar fecha inválida en from', async () => {
+    await expect(service.getStats({ from: 'fecha-invalida' })).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('debe devolver totales en cero cuando no hay eventos', async () => {
+    createRepo.find.mockResolvedValue([]);
+    updateRepo.find.mockResolvedValue([]);
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const stats = await service.getStats();
+
+    expect(stats).toEqual({
+      byAction: { create: 0, update: 0, delete: 0, query: 0, total: 0 },
+      bySource: {},
+      byEntity: {},
+      byDay: {},
     });
   });
 
