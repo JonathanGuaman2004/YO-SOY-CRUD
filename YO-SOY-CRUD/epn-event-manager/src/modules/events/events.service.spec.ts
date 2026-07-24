@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { jest } from '@jest/globals';
 
 import { CreateEventEntity } from '../../database/entities/create-event.entity';
 import { DeleteEventEntity } from '../../database/entities/delete-event.entity';
@@ -14,29 +15,48 @@ type EventRecordForTest = Record<
   string | number | boolean | Record<string, unknown> | undefined
 >;
 
-type MockRepository = {
-  create: jest.Mock<EventRecordForTest, [EventRecordForTest]>;
-  save: jest.Mock<Promise<EventRecordForTest>, [EventRecordForTest]>;
-  find: jest.Mock<Promise<EventRecordForTest[]>, []>;
-  findBy: jest.Mock<
-    Promise<EventRecordForTest[]>,
-    [Partial<EventRecordForTest>]
+type EventsListResponseForTest = {
+  data: Array<
+    EventRecordForTest & {
+      _table?: string;
+      _eventDate?: string;
+    }
   >;
-  count: jest.Mock<Promise<number>, []>;
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    returned: number;
+    hasNextPage: boolean;
+  };
+};
+
+type MockRepository = {
+  create: jest.MockedFunction<(data: EventRecordForTest) => EventRecordForTest>;
+  save: jest.MockedFunction<
+    (data: EventRecordForTest) => Promise<EventRecordForTest>
+  >;
+  find: jest.MockedFunction<() => Promise<EventRecordForTest[]>>;
+  findBy: jest.MockedFunction<
+    (criteria: Partial<EventRecordForTest>) => Promise<EventRecordForTest[]>
+  >;
+  count: jest.MockedFunction<() => Promise<number>>;
 };
 
 function createMockRepository(): MockRepository {
   return {
-    create: jest.fn<EventRecordForTest, [EventRecordForTest]>((data) => data),
-    save: jest.fn<Promise<EventRecordForTest>, [EventRecordForTest]>((data) =>
-      Promise.resolve(data),
+    create: jest.fn<(data: EventRecordForTest) => EventRecordForTest>(
+      (data) => data,
     ),
-    find: jest.fn<Promise<EventRecordForTest[]>, []>(),
-    findBy: jest.fn<
-      Promise<EventRecordForTest[]>,
-      [Partial<EventRecordForTest>]
-    >(),
-    count: jest.fn<Promise<number>, []>(),
+    save: jest.fn<(data: EventRecordForTest) => Promise<EventRecordForTest>>(
+      (data) => Promise.resolve(data),
+    ),
+    find: jest.fn<() => Promise<EventRecordForTest[]>>(),
+    findBy:
+      jest.fn<
+        (criteria: Partial<EventRecordForTest>) => Promise<EventRecordForTest[]>
+      >(),
+    count: jest.fn<() => Promise<number>>(),
   };
 }
 
@@ -257,7 +277,7 @@ describe('EventsService', () => {
     });
   });
 
-  it('debe listar eventos normalizados y ordenados por fecha', async () => {
+  it('debe listar eventos normalizados, ordenados y paginados por fecha', async () => {
     createRepo.find.mockResolvedValue([
       {
         id: 1,
@@ -293,29 +313,83 @@ describe('EventsService', () => {
       },
     ]);
 
-    const events = await service.findAll();
+    const result = (await service.findAll({
+      limit: '2',
+      offset: '0',
+    })) as EventsListResponseForTest;
 
-    expect(events).toHaveLength(3);
+    expect(result.data).toHaveLength(2);
 
-    expect(events[0]).toEqual(
+    expect(result.pagination).toEqual({
+      total: 3,
+      limit: 2,
+      offset: 0,
+      returned: 2,
+      hasNextPage: true,
+    });
+
+    expect(result.data[0]).toEqual(
       expect.objectContaining({
         _table: 'query_events',
         _eventDate: '2026-05-17T12:00:00.000Z',
       }),
     );
 
-    expect(events[1]).toEqual(
+    expect(result.data[1]).toEqual(
       expect.objectContaining({
         _table: 'update_events',
         _eventDate: '2026-05-17T11:00:00.000Z',
       }),
     );
+  });
+  it('debe filtrar eventos por source y action', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'SpaceMissionControl',
+        entity: 'Mission',
+        action: 'CREATE',
+        title: 'Crear misión',
+        recorded_at: '2026-05-17T10:00:00.000Z',
+      },
+      {
+        id: 2,
+        source: 'OtherSystem',
+        entity: 'Mission',
+        action: 'CREATE',
+        title: 'Crear externo',
+        recorded_at: '2026-05-17T11:00:00.000Z',
+      },
+    ]);
 
-    expect(events[2]).toEqual(
+    updateRepo.find.mockResolvedValue([
+      {
+        id: 3,
+        source: 'SpaceMissionControl',
+        entity: 'Mission',
+        action: 'UPDATE',
+        title: 'Actualizar misión',
+        timestamp: '2026-05-17T12:00:00.000Z',
+      },
+    ]);
+
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const result = (await service.findAll({
+      source: 'SpaceMissionControl',
+      action: 'CREATE',
+    })) as EventsListResponseForTest;
+
+    expect(result.data).toHaveLength(1);
+
+    expect(result.data[0]).toEqual(
       expect.objectContaining({
-        _table: 'create_events',
-        _eventDate: '2026-05-17T10:00:00.000Z',
+        source: 'SpaceMissionControl',
+        action: 'CREATE',
       }),
     );
+
+    expect(result.pagination.total).toBe(1);
   });
 });

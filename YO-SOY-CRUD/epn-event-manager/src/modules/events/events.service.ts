@@ -12,6 +12,19 @@ type StoredEvent = Record<string, unknown> & {
   _eventDate?: string;
 };
 
+type EventQuery = Record<string, string | undefined>;
+
+type PaginatedEventsResponse = {
+  data: StoredEvent[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    returned: number;
+    hasNextPage: boolean;
+  };
+};
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -78,14 +91,18 @@ export class EventsService {
     return { ok: true, action };
   }
 
-  //Evita repetición de código para obtener eventos de las 4 tablas, y normalizarlos a un formato común para ordenarlos por fecha
-  async findAll(): Promise<object[]> {
+  // Evita repetición de código para obtener eventos de las 4 tablas,
+  // normalizarlos, filtrarlos y paginarlos.
+  async findAll(query: EventQuery = {}): Promise<PaginatedEventsResponse> {
     const creates = await this.createRepo.find();
     const updates = await this.updateRepo.find();
     const deletes = await this.deleteRepo.find();
     const queries = await this.queryRepo.find();
 
-    return this.normalizeEvents(creates, updates, deletes, queries);
+    const events = this.normalizeEvents(creates, updates, deletes, queries);
+    const filteredEvents = this.filterEvents(events, query);
+
+    return this.paginateEvents(filteredEvents, query);
   }
 
   async findBySource(source: string): Promise<object[]> {
@@ -139,6 +156,59 @@ export class EventsService {
     }
   }
 
+  private filterEvents(
+    events: StoredEvent[],
+    query: EventQuery,
+  ): StoredEvent[] {
+    const source = this.clean(query.source);
+    const entity = this.clean(query.entity);
+    const action = this.clean(query.action).toUpperCase();
+    const from = this.clean(query.from);
+    const to = this.clean(query.to);
+
+    return events.filter((event) => {
+      if (source && this.clean(event.source) !== source) return false;
+      if (entity && this.clean(event.entity) !== entity) return false;
+
+      if (action && this.clean(event.action).toUpperCase() !== action) {
+        return false;
+      }
+
+      const eventTime = Date.parse(event._eventDate ?? '') || 0;
+
+      if (from) {
+        const fromTime = Date.parse(`${from}T00:00:00.000Z`);
+        if (!Number.isNaN(fromTime) && eventTime < fromTime) return false;
+      }
+
+      if (to) {
+        const toTime = Date.parse(`${to}T23:59:59.999Z`);
+        if (!Number.isNaN(toTime) && eventTime > toTime) return false;
+      }
+
+      return true;
+    });
+  }
+
+  private paginateEvents(
+    events: StoredEvent[],
+    query: EventQuery,
+  ): PaginatedEventsResponse {
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+    const offset = Math.max(Number(query.offset) || 0, 0);
+    const data = events.slice(offset, offset + limit);
+
+    return {
+      data,
+      pagination: {
+        total: events.length,
+        limit,
+        offset,
+        returned: data.length,
+        hasNextPage: offset + limit < events.length,
+      },
+    };
+  }
   // Métodos privados
   // Función privada para normalizar eventos de diferentes tablas en un formato común para ordenarlos por fecha
   private normalizeEvents(
