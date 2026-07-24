@@ -12,7 +12,7 @@ process.env.FIS_EPN_API_KEY = "test-key";
 process.env.REQUIRE_API_KEY = "true";
 process.env.EVENT_MANAGER_TIMEOUT_MS = "50";
 
-const { app, validateMission, hasBlockedContent } = require("../server");
+const { app, validateMission, hasBlockedContent, isValidIsoDate } = require('../server');
 const API_KEY = { "X-FIS-EPN-KEY": "test-key" };
 
 function listen() {
@@ -50,7 +50,25 @@ test("validación preventiva: bloquea entradas maliciosas básicas", () => {
   });
   assert.ok(errors.includes("name contiene contenido no permitido"));
 });
+test('validación de fechas: acepta fechas calendario válidas', () => {
+  assert.equal(isValidIsoDate('2028-02-29'), true);
+  assert.equal(isValidIsoDate('2028-09-01'), true);
+});
 
+test('validación de fechas: rechaza fechas calendario inválidas', () => {
+  assert.equal(isValidIsoDate('2028-02-31'), false);
+  assert.equal(isValidIsoDate('2028-13-01'), false);
+  assert.equal(isValidIsoDate('02/31/2028'), false);
+
+  const errors = validateMission({
+    name: 'Misión inválida',
+    agency: 'NASA',
+    type: 'Lunar',
+    date: '2028-02-31',
+  });
+
+  assert.ok(errors.includes('date debe tener formato YYYY-MM-DD válido'));
+});
 test("seguridad: endpoints CRUD exigen X-FIS-EPN-KEY", async () => {
   const server = await listen();
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -156,6 +174,60 @@ test('paginación: devuelve metadata en listado de misiones', async () => {
     assert.equal(body.pagination.total >= 3, true);
     assert.equal(body.pagination.totalPages >= 2, true);
     assert.equal(body.pagination.hasNextPage, true);
+  } finally {
+    await close(server);
+  }
+});
+test('API: rechaza fechas inválidas al crear y actualizar misión', async () => {
+  const server = await listen();
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+  try {
+    const invalidCreate = await fetch(`${baseUrl}/missions`, {
+      method: 'POST',
+      headers: { ...API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Misión con fecha inválida',
+        agency: 'NASA',
+        type: 'Lunar',
+        date: '2028-02-31',
+        status: 'planned',
+      }),
+    });
+
+    assert.equal(invalidCreate.status, 400);
+
+    const invalidCreateBody = await readJson(invalidCreate);
+    assert.match(invalidCreateBody.error, /date debe tener formato YYYY-MM-DD válido/);
+
+    const createResponse = await fetch(`${baseUrl}/missions`, {
+      method: 'POST',
+      headers: { ...API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Artemis Fecha',
+        agency: 'NASA',
+        type: 'Lunar',
+        date: '2028-09-01',
+        status: 'planned',
+      }),
+    });
+
+    assert.equal(createResponse.status, 201);
+
+    const created = await readJson(createResponse);
+
+    const invalidUpdate = await fetch(`${baseUrl}/missions/${created.id}`, {
+      method: 'PUT',
+      headers: { ...API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: '2028-13-01',
+      }),
+    });
+
+    assert.equal(invalidUpdate.status, 400);
+
+    const invalidUpdateBody = await readJson(invalidUpdate);
+    assert.match(invalidUpdateBody.error, /date debe tener formato YYYY-MM-DD válido/);
   } finally {
     await close(server);
   }
