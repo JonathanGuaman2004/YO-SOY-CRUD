@@ -364,14 +364,33 @@
 
     async function loadPets() {
       try {
-        const response = await fetch(`${API}/pets`);
-        pets = await response.json();
+        const response = await fetch(
+          `${API}/pets?page=1&limit=100`,
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || 'Error consultando mascotas',
+          );
+        }
+
+        pets = result.data;
 
         renderPets();
         updateStats();
-        addLog(`QUERY: ${pets.length} mascotas cargadas`);
-      } catch {
-        addLog('Error cargando mascotas');
+
+        addLog(
+          `QUERY: ${result.pagination.total} mascotas encontradas`,
+        );
+      } catch (error) {
+        pets = [];
+        renderPets();
+
+        addLog(
+          error.message || 'Error cargando mascotas',
+        );
       }
     }
 

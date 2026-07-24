@@ -112,6 +112,67 @@ function validatePet(data, isUpdate = false) {
   return errors;
 }
 
+function hasQueryValue(value) {
+  return value !== undefined && clean(value) !== '';
+}
+
+function validatePetFilters(filters = {}) {
+  const errors = [];
+
+  const species = clean(filters.species).toLowerCase();
+  const status = clean(filters.status).toLowerCase();
+
+  if (species && !allowedSpecies.includes(species)) {
+    errors.push('species inválida');
+  }
+
+  if (status && !allowedStatus.includes(status)) {
+    errors.push('status inválido');
+  }
+
+  if (hasQueryValue(filters.minAge)) {
+    const minAge = Number(filters.minAge);
+
+    if (!Number.isInteger(minAge) || minAge < 0 || minAge > 50) {
+      errors.push('minAge debe ser un entero entre 0 y 50');
+    }
+  }
+
+  if (hasQueryValue(filters.maxAge)) {
+    const maxAge = Number(filters.maxAge);
+
+    if (!Number.isInteger(maxAge) || maxAge < 0 || maxAge > 50) {
+      errors.push('maxAge debe ser un entero entre 0 y 50');
+    }
+  }
+
+  if (
+    hasQueryValue(filters.minAge) &&
+    hasQueryValue(filters.maxAge) &&
+    Number(filters.minAge) > Number(filters.maxAge)
+  ) {
+    errors.push('minAge no puede ser mayor que maxAge');
+  }
+
+  const page = hasQueryValue(filters.page)
+    ? Number(filters.page)
+    : 1;
+
+  const limit = hasQueryValue(filters.limit)
+    ? Number(filters.limit)
+    : 20;
+
+  if (!Number.isInteger(page) || page < 1) {
+    errors.push('page debe ser un entero mayor o igual a 1');
+  }
+
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    errors.push('limit debe ser un entero entre 1 y 100');
+  }
+
+  return errors;
+}
+
 function nextPetId() {
   const row = db
     .prepare("SELECT id FROM pets WHERE id LIKE 'PET-%' ORDER BY CAST(SUBSTR(id, 5) AS INTEGER) DESC LIMIT 1")
@@ -137,8 +198,96 @@ function mapPet(row) {
   };
 }
 
-function findAllPets() {
-  return db.prepare('SELECT * FROM pets ORDER BY createdAt DESC').all().map(mapPet);
+function findAllPets(filters = {}) {
+  const conditions = [];
+  const params = [];
+
+  const species = clean(filters.species).toLowerCase();
+  const status = clean(filters.status).toLowerCase();
+  const owner = clean(filters.owner).toLowerCase();
+  const q = clean(filters.q).toLowerCase();
+
+  if (species) {
+    conditions.push('species = ?');
+    params.push(species);
+  }
+
+  if (status) {
+    conditions.push('status = ?');
+    params.push(status);
+  }
+
+  if (owner) {
+    conditions.push('LOWER(owner) LIKE ?');
+    params.push(`%${owner}%`);
+  }
+
+  if (hasQueryValue(filters.minAge)) {
+    conditions.push('age >= ?');
+    params.push(Number(filters.minAge));
+  }
+
+  if (hasQueryValue(filters.maxAge)) {
+    conditions.push('age <= ?');
+    params.push(Number(filters.maxAge));
+  }
+
+  if (q) {
+    conditions.push(
+      '(LOWER(name) LIKE ? OR LOWER(breed) LIKE ?)',
+    );
+
+    params.push(`%${q}%`, `%${q}%`);
+  }
+
+  const page = hasQueryValue(filters.page)
+    ? Number(filters.page)
+    : 1;
+
+  const limit = hasQueryValue(filters.limit)
+    ? Number(filters.limit)
+    : 20;
+
+  const offset = (page - 1) * limit;
+
+  const whereSql = conditions.length
+    ? `WHERE ${conditions.join(' AND ')}`
+    : '';
+
+  const totalRow = db
+    .prepare(`
+      SELECT COUNT(*) AS total
+      FROM pets
+      ${whereSql}
+    `)
+    .get(...params);
+
+  const rows = db
+    .prepare(`
+      SELECT *
+      FROM pets
+      ${whereSql}
+      ORDER BY createdAt DESC
+      LIMIT ? OFFSET ?
+    `)
+    .all(...params, limit, offset);
+
+  const data = rows.map(mapPet);
+  const total = Number(totalRow.total);
+
+  return {
+    data,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: total === 0
+        ? 0
+        : Math.ceil(total / limit),
+      returned: data.length,
+      hasNextPage: offset + limit < total,
+    },
+  };
 }
 
 function findPetById(id) {
@@ -299,18 +448,27 @@ app.get('/pets/stats', (req, res) => {
 });
 
 app.get('/pets', async (req, res) => {
-  const pets = findAllPets();
+  const errors = validatePetFilters(req.query);
+
+  if (errors.length) {
+    return res.status(400).json({
+      error: errors.join(', '),
+    });
+  }
+
+  const result = findAllPets(req.query);
 
   await sendEvent('QUERY', {
     id: 'ALL',
-    name: 'Consulta general de mascotas',
-    species: 'system',
-    owner: 'system',
-    status: 'query',
-    total: pets.length,
+    name: 'Consulta filtrada de mascotas',
+    species: req.query.species || 'system',
+    owner: req.query.owner || 'system',
+    status: req.query.status || 'query',
+    total: result.pagination.total,
+    filters: req.query,
   });
 
-  return res.json(pets);
+  return res.json(result);
 });
 
 app.get('/pets/:id', async (req, res) => {
@@ -389,6 +547,8 @@ module.exports = {
   normalizeSpecies,
   normalizeStatus,
   validatePet,
+  hasQueryValue,
+  validatePetFilters,
   getPetStats,
   findAllPets,
   findPetById,
