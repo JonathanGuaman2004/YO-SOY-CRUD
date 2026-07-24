@@ -7,10 +7,11 @@ import { UpdateEventEntity } from '../../database/entities/update-event.entity';
 import { DeleteEventEntity } from '../../database/entities/delete-event.entity';
 import { QueryEventEntity } from '../../database/entities/query-event.entity';
 
-type StoredEvent = Record<string, unknown> & {
+export interface StoredEvent {
+  [key: string]: unknown;
   _table?: string;
   _eventDate?: string;
-};
+}
 
 type EventQuery = Record<string, string | undefined>;
 
