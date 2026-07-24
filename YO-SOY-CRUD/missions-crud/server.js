@@ -222,8 +222,7 @@ function mapMission(row) {
     updatedAt: row.updatedAt,
   };
 }
-
-function findAllMissions(filters = {}) {
+function buildMissionWhere(filters = {}) {
   const where = [];
   const params = [];
 
@@ -251,16 +250,44 @@ function findAllMissions(filters = {}) {
     params.push(q, q, q, q, q);
   }
 
-  const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 100);
-  const offset = Math.max(Number(filters.offset) || 0, 0);
+  return { where, params };
+}
+function findAllMissions(filters = {}) {
+  const { where, params } = buildMissionWhere(filters);
+
+  const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 100);
+  const page = Math.max(Number(filters.page) || 1, 1);
+  const offset = filters.offset !== undefined
+    ? Math.max(Number(filters.offset) || 0, 0)
+    : (page - 1) * limit;
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  const total = db
+    .prepare(`SELECT COUNT(*) AS total FROM missions ${whereSql}`)
+    .get(...params).total;
+
   const sql = `
     SELECT * FROM missions
-    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ${whereSql}
     ORDER BY createdAt DESC
     LIMIT ? OFFSET ?
   `;
 
-  return db.prepare(sql).all(...params, limit, offset).map(mapMission);
+  const data = db.prepare(sql).all(...params, limit, offset).map(mapMission);
+
+  return {
+    data,
+    pagination: {
+      total,
+      limit,
+      offset,
+      page,
+      totalPages: Math.ceil(total / limit),
+      returned: data.length,
+      hasNextPage: offset + limit < total,
+    },
+  };
 }
 
 function findMissionById(id) {
@@ -478,17 +505,17 @@ app.post('/missions', asyncRoute(async (req, res) => {
 }));
 
 app.get('/missions', asyncRoute(async (req, res) => {
-  const missions = findAllMissions(req.query);
-  audit(req, 'QUERY_LIST', { total: missions.length, filters: req.query });
+  const result = findAllMissions(req.query);
+  audit(req, 'QUERY_LIST', { total: result.pagination.total, filters: req.query });
   await sendEvent('QUERY', {
     id: 'ALL',
     name: 'Consulta general de misiones',
     agency: 'system',
     type: 'query',
     status: 'query',
-    total: missions.length,
+    total: result.pagination.total,
   });
-  return res.json(missions);
+  return res.json(result);
 }));
 
 app.get('/missions/:id', asyncRoute(async (req, res) => {
@@ -572,6 +599,7 @@ module.exports = {
   validateMission,
   hasBlockedContent,
   getMissionStats,
+  buildMissionWhere,
   findAllMissions,
   findMissionById,
   insertMission,
