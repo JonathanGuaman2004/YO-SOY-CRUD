@@ -138,8 +138,13 @@ export class EventsService {
     const deletes = await this.deleteRepo.find();
     const queries = await this.queryRepo.find();
 
-    const events = this.normalizeEvents(creates, updates, deletes, queries);
-    const filteredEvents = this.filterEvents(events, query);
+    const events: StoredEvent[] = this.normalizeEvents(
+      creates,
+      updates,
+      deletes,
+      queries,
+    );
+    const filteredEvents: StoredEvent[] = this.filterEvents(events, query);
 
     const byAction: Record<string, number> = {};
     const bySource: Record<string, number> = {};
