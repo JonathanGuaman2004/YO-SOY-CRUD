@@ -155,9 +155,12 @@ describe('EPN Event Manager (e2e)', () => {
   describe('GET /events y filtros', () => {
     it('GET /events devuelve la lista normalizada', async () => {
       const res = await supertest(http).get('/events').expect(200);
-      const body = res.body as StoredEventResponse[];
-      expect(Array.isArray(body)).toBe(true);
-      expect(body.length).toBeGreaterThan(0);
+      const body = res.body as {
+        data: StoredEventResponse[];
+        pagination: object;
+      };
+      expect(Array.isArray(body.data)).toBe(true);
+      expect(body.data.length).toBeGreaterThan(0);
     });
 
     it('GET /events/source/:source filtra por source', async () => {
@@ -182,11 +185,13 @@ describe('EPN Event Manager (e2e)', () => {
   });
 
   interface StatsResponse {
-    create: number;
-    update: number;
-    delete: number;
-    query: number;
-    total: number;
+    byAction: {
+      create: number;
+      update: number;
+      delete: number;
+      query: number;
+      total: number;
+    };
   }
 
   describe('GET /stats', () => {
@@ -194,14 +199,17 @@ describe('EPN Event Manager (e2e)', () => {
       const res = await supertest(http).get('/stats').expect(200);
       const body = res.body as StatsResponse;
 
-      expect(typeof body.create).toBe('number');
-      expect(typeof body.update).toBe('number');
-      expect(typeof body.delete).toBe('number');
-      expect(typeof body.query).toBe('number');
-      expect(typeof body.total).toBe('number');
+      expect(typeof body.byAction.create).toBe('number');
+      expect(typeof body.byAction.update).toBe('number');
+      expect(typeof body.byAction.delete).toBe('number');
+      expect(typeof body.byAction.query).toBe('number');
+      expect(typeof body.byAction.total).toBe('number');
 
-      expect(body.total).toBe(
-        body.create + body.update + body.delete + body.query,
+      expect(body.byAction.total).toBe(
+        body.byAction.create +
+          body.byAction.update +
+          body.byAction.delete +
+          body.byAction.query,
       );
     });
   });
