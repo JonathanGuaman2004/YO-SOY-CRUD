@@ -279,6 +279,44 @@ function validateTournamentQuery(query = {}) {
   return errors;
 }
 
+const VALID_UPDATE_FIELDS = [
+  'name', 'game', 'organizer', 'date_start', 'date_end',
+  'prize_pool', 'max_teams', 'status', 'description',
+];
+
+function validateUpdateBody(body) {
+  const errors = [];
+  if (body === null || typeof body !== 'object') {
+    return ['El cuerpo de la petición debe ser un objeto JSON válido'];
+  }
+  const hasAnyField = VALID_UPDATE_FIELDS.some(f => f in body);
+  if (!hasAnyField) {
+    errors.push('No se enviaron campos válidos para actualizar');
+  }
+  return errors;
+}
+
+function validateFinalDateRange(stored, body) {
+  const errors = [];
+  const finalDateStart = body.date_start !== undefined ? clean(body.date_start) : stored.date_start;
+  const finalDateEnd = body.date_end !== undefined ? clean(body.date_end) : stored.date_end;
+
+  if (finalDateStart && finalDateEnd) {
+    if (isNaN(Date.parse(finalDateStart))) {
+      errors.push('date_start debe ser una fecha válida en formato ISO');
+      return errors;
+    }
+    if (isNaN(Date.parse(finalDateEnd))) {
+      errors.push('date_end debe ser una fecha válida en formato ISO');
+      return errors;
+    }
+    if (new Date(finalDateEnd) <= new Date(finalDateStart)) {
+      errors.push('date_end debe ser posterior a date_start');
+    }
+  }
+  return errors;
+}
+
 // ── IDs ─────────────────────────────────────────────────────
 function nextTournamentId() {
   const row = db
@@ -576,6 +614,18 @@ app.put('/tournaments/:id', requireApiKey, async (req, res) => {
     return res.status(404).json({ error: 'Torneo no encontrado' });
   }
 
+  const bodyErrors = validateUpdateBody(req.body);
+  if (bodyErrors.length) {
+    logger.warn('UPDATE', 'Cuerpo inválido en actualización', { errors: bodyErrors, id });
+    return res.status(400).json({ error: bodyErrors.join(', ') });
+  }
+
+  const dateErrors = validateFinalDateRange(exists, req.body);
+  if (dateErrors.length) {
+    logger.warn('UPDATE', 'Rango de fechas inválido en actualización', { errors: dateErrors, id });
+    return res.status(400).json({ error: dateErrors.join(', ') });
+  }
+
   const errors = validateTournament(req.body, true);
   if (errors.length) {
     logger.warn('UPDATE', 'Validación fallida en actualización', { errors, id });
@@ -627,4 +677,5 @@ module.exports = {
   getTournamentStats, buildTournamentWhere, findTournaments,
   findAllTournaments, findTournamentById, insertTournament, updateTournament,
   deleteTournamentById, startServer, ALLOWED_GAMES, ALLOWED_STATUS, ALLOWED_SORT_BY, logger,
+  validateUpdateBody, validateFinalDateRange, VALID_UPDATE_FIELDS,
 };
