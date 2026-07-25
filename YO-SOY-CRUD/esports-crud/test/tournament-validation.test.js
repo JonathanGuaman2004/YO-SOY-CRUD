@@ -180,3 +180,169 @@ describe('ALLOWED_GAMES — catálogo oficial', () => {
     assert.ok(!ALLOWED_GAMES.includes('Tetris'));
   });
 });
+
+const {
+  buildTournamentWhere,
+  validateTournamentQuery,
+  ALLOWED_SORT_BY,
+} = require('../server.js');
+
+// ═══════════════════════════════════════════════════
+// SUITE 6 — buildTournamentWhere()
+// ═══════════════════════════════════════════════════
+describe('buildTournamentWhere() — filtros', () => {
+  it('retorna WHERE y params vacíos sin filtros', () => {
+    const { where, params } = buildTournamentWhere({});
+    assert.deepEqual(where, []);
+    assert.deepEqual(params, []);
+  });
+
+  it('filtra por game exacto', () => {
+    const { where, params } = buildTournamentWhere({ game: 'Valorant' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('game ='));
+    assert.equal(params[0], 'Valorant');
+  });
+
+  it('filtra por status exacto', () => {
+    const { where, params } = buildTournamentWhere({ status: 'próximo' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('status ='));
+    assert.equal(params[0], 'próximo');
+  });
+
+  it('filtra por organizer con LIKE', () => {
+    const { where, params } = buildTournamentWhere({ organizer: 'EPN' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('LIKE'));
+    assert.equal(params[0], '%EPN%');
+  });
+
+  it('filtra por dateFrom', () => {
+    const { where, params } = buildTournamentWhere({ dateFrom: '2026-06-01' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('date_start'));
+    assert.equal(params[0], '2026-06-01');
+  });
+
+  it('filtra por dateTo', () => {
+    const { where, params } = buildTournamentWhere({ dateTo: '2026-12-31' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('date_end'));
+    assert.equal(params[0], '2026-12-31');
+  });
+
+  it('filtra por minPrize', () => {
+    const { where, params } = buildTournamentWhere({ minPrize: '500' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('prize_pool'));
+    assert.equal(params[0], 500);
+  });
+
+  it('filtra por maxPrize', () => {
+    const { where, params } = buildTournamentWhere({ maxPrize: '2000' });
+    assert.equal(where.length, 1);
+    assert.ok(where[0].includes('prize_pool'));
+    assert.equal(params[0], 2000);
+  });
+
+  it('combina múltiples filtros', () => {
+    const { where, params } = buildTournamentWhere({
+      game: 'Valorant', status: 'próximo', minPrize: '500',
+    });
+    assert.equal(where.length, 3);
+    assert.equal(params.length, 3);
+  });
+});
+
+// ═══════════════════════════════════════════════════
+// SUITE 7 — validateTournamentQuery()
+// ═══════════════════════════════════════════════════
+describe('validateTournamentQuery() — validación de parámetros', () => {
+  it('acepta query vacía sin errores', () => {
+    assert.deepEqual(validateTournamentQuery({}), []);
+  });
+
+  it('rechaza page < 1', () => {
+    const e = validateTournamentQuery({ page: '0' });
+    assert.ok(e.some(x => x.includes('page')));
+  });
+
+  it('rechaza page no entero', () => {
+    const e = validateTournamentQuery({ page: '1.5' });
+    assert.ok(e.some(x => x.includes('page')));
+  });
+
+  it('TC-ES-01-004: rechaza page=0 y limit=500', () => {
+    const e = validateTournamentQuery({ page: '0', limit: '500' });
+    assert.ok(e.some(x => x.includes('page')));
+    assert.ok(e.some(x => x.includes('limit')));
+  });
+
+  it('rechaza limit < 1', () => {
+    const e = validateTournamentQuery({ limit: '0' });
+    assert.ok(e.some(x => x.includes('limit')));
+  });
+
+  it('rechaza limit > 100', () => {
+    const e = validateTournamentQuery({ limit: '500' });
+    assert.ok(e.some(x => x.includes('limit')));
+  });
+
+  it('rechaza minPrize negativo', () => {
+    const e = validateTournamentQuery({ minPrize: '-100' });
+    assert.ok(e.some(x => x.includes('minPrize')));
+  });
+
+  it('rechaza maxPrize negativo', () => {
+    const e = validateTournamentQuery({ maxPrize: '-1' });
+    assert.ok(e.some(x => x.includes('maxPrize')));
+  });
+
+  it('rechaza dateFrom inválido', () => {
+    const e = validateTournamentQuery({ dateFrom: 'no-es-fecha' });
+    assert.ok(e.some(x => x.includes('dateFrom')));
+  });
+
+  it('rechaza dateTo inválido', () => {
+    const e = validateTournamentQuery({ dateTo: 'fecha-invalida' });
+    assert.ok(e.some(x => x.includes('dateTo')));
+  });
+
+  it('rechaza minPrize > maxPrize', () => {
+    const e = validateTournamentQuery({ minPrize: '2000', maxPrize: '500' });
+    assert.ok(e.some(x => x.includes('minPrize')));
+  });
+
+  it('rechaza sortBy inválido', () => {
+    const e = validateTournamentQuery({ sortBy: 'invalidField' });
+    assert.ok(e.some(x => x.includes('sortBy')));
+  });
+
+  it('acepta sortBy válido', () => {
+    ALLOWED_SORT_BY.forEach(field => {
+      assert.deepEqual(validateTournamentQuery({ sortBy: field }), []);
+    });
+  });
+
+  it('rechaza order inválido', () => {
+    const e = validateTournamentQuery({ order: 'invalid' });
+    assert.ok(e.some(x => x.includes('order')));
+  });
+
+  it('acepta order asc', () => {
+    assert.deepEqual(validateTournamentQuery({ order: 'asc' }), []);
+  });
+
+  it('acepta order desc', () => {
+    assert.deepEqual(validateTournamentQuery({ order: 'desc' }), []);
+  });
+
+  it('acepta page=1 y limit=10 válidos', () => {
+    assert.deepEqual(validateTournamentQuery({ page: '1', limit: '10' }), []);
+  });
+
+  it('acepta limit=100 (máximo permitido)', () => {
+    assert.deepEqual(validateTournamentQuery({ limit: '100' }), []);
+  });
+});
