@@ -750,4 +750,113 @@ describe('EventsService', () => {
       BadRequestException,
     );
   });
+  it('debe filtrar eventos por source', async () => {
+    createRepo.findBy.mockResolvedValue([]);
+    updateRepo.findBy.mockResolvedValue([]);
+    deleteRepo.findBy.mockResolvedValue([]);
+    queryRepo.findBy.mockResolvedValue([]);
+
+    const events = await service.findBySource('SystemA');
+    expect(events).toEqual([]);
+    expect(createRepo.findBy).toHaveBeenCalledWith({ source: 'SystemA' });
+  });
+
+  it('debe rechazar source vacío', async () => {
+    await expect(service.findBySource('   ')).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('debe filtrar eventos por entity', async () => {
+    createRepo.findBy.mockResolvedValue([]);
+    updateRepo.findBy.mockResolvedValue([]);
+    deleteRepo.findBy.mockResolvedValue([]);
+    queryRepo.findBy.mockResolvedValue([]);
+
+    const events = await service.findByEntity('EntityX');
+    expect(events).toEqual([]);
+    expect(updateRepo.findBy).toHaveBeenCalledWith({ entity: 'EntityX' });
+  });
+
+  it('debe rechazar entity vacío', async () => {
+    await expect(service.findByEntity('')).rejects.toThrow(BadRequestException);
+  });
+
+  it('debe extraer query_term desde distintos alias del payload', async () => {
+    const base = {
+      source: 'S',
+      entity: 'E',
+      action: 'QUERY' as const,
+      title: 'T',
+    };
+
+    await service.registerEvent({ ...base, payload: { query: 'foo' } });
+    expect(queryRepo.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query_term: 'foo' }),
+    );
+
+    await service.registerEvent({ ...base, payload: { filtro: 'bar' } });
+    expect(queryRepo.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query_term: 'bar' }),
+    );
+
+    await service.registerEvent({ ...base, payload: { name: 'baz' } });
+    expect(queryRepo.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query_term: 'baz' }),
+    );
+  });
+it('extractQueryTerm usa data.id cuando no hay query ni filtro', async () => {
+    await service.registerEvent({
+      source: 'S',
+      entity: 'E',
+      action: 'QUERY',
+      title: 'con id',
+      payload: { id: 'ID-123' },
+    });
+    expect(queryRepo.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query_term: 'ID-123' }),
+    );
+  });
+
+  it('extractQueryTerm devuelve cadena vacía cuando el payload es null', async () => {
+    await service.registerEvent({
+      source: 'S',
+      entity: 'E',
+      action: 'QUERY',
+      title: 'payload null',
+      payload: null as unknown as Record<string, unknown>,
+    });
+    expect(queryRepo.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query_term: '' }),
+    );
+  });
+
+  it('normaliza eventos con fecha inválida o ausente sin romperse', async () => {
+    createRepo.find.mockResolvedValue([
+      {
+        id: 1,
+        source: 'S',
+        entity: 'E',
+        action: 'CREATE',
+        title: 'sin fecha',
+        recorded_at: undefined,
+      },
+    ]);
+    updateRepo.find.mockResolvedValue([
+      {
+        id: 2,
+        source: 'S',
+        entity: 'E',
+        action: 'UPDATE',
+        title: 'fecha inválida',
+        timestamp: 'esto-no-es-una-fecha',
+      },
+    ]);
+    deleteRepo.find.mockResolvedValue([]);
+    queryRepo.find.mockResolvedValue([]);
+
+    const events = await service.findAll();
+    expect(events).toHaveLength(2);
+  });
+
 });

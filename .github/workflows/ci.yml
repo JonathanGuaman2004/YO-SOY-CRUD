@@ -49,6 +49,11 @@ jobs:
       - name: Coverage
         run: npm run test:cov
 
+      - name: E2E tests
+        run: npm run test:e2e
+        env:
+          DB_PATH: ':memory:'
+
   crud-projects:
     name: CRUD Projects - Check, Lint and Test
     runs-on: ubuntu-latest
