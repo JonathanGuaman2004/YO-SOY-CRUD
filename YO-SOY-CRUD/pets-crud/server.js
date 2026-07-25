@@ -589,6 +589,10 @@ if (require.main === module) {
   startServer();
 }
 
+function closeDatabase() {
+  db.close();
+}
+
 module.exports = {
   app,
   clean,
@@ -605,4 +609,5 @@ module.exports = {
   deletePetById,
   startServer,
   requireApiKey,
+  closeDatabase,
 };
