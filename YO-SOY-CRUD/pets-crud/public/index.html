@@ -334,6 +334,13 @@
   <script>
     const API = 'http://localhost:4002';
 
+    const API_KEY = 'fis-epn-2026';
+
+    const WRITE_HEADERS = {
+      'Content-Type': 'application/json',
+      'X-FIS-EPN-KEY': API_KEY,
+    };
+
     let pets = [];
 
     function addLog(message) {
@@ -419,13 +426,13 @@
         if (id) {
           response = await fetch(`${API}/pets/${id}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
+            headers: WRITE_HEADERS,
             body: JSON.stringify(pet)
           });
         } else {
           response = await fetch(`${API}/pets`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: WRITE_HEADERS,
             body: JSON.stringify(pet)
           });
         }
@@ -478,7 +485,10 @@
 
       try {
         const response = await fetch(`${API}/pets/${id}`, {
-          method: 'DELETE'
+          method: 'DELETE',
+          headers: {
+            'X-FIS-EPN-KEY': API_KEY,
+          },
         });
 
         if (!response.ok) {

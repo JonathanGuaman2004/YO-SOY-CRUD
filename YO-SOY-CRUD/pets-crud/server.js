@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -14,6 +16,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 const EVENT_MANAGER_URL = process.env.EVENT_MANAGER_URL || 'http://localhost:3000/events';
 const EVENT_MANAGER_HEALTH_URL = process.env.EVENT_MANAGER_HEALTH_URL || 'http://localhost:3000/health';
 
+const API_KEY_HEADER = 'X-FIS-EPN-KEY';
+const FIS_EPN_API_KEY = process.env.FIS_EPN_API_KEY;
+
 const PORT = process.env.PORT || 4002;
 
 const DB_DIR = path.join(__dirname, 'db');
@@ -27,6 +32,50 @@ fs.mkdirSync(DB_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
+
+
+function logRejectedAccess(req, reason) {
+  console.warn(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'WARN',
+      service: 'pets-crud',
+      action: 'AUTH_REJECTED',
+      reason,
+      method: req.method,
+      path: req.originalUrl,
+      ip: req.ip,
+    }),
+  );
+}
+
+function requireApiKey(req, res, next) {
+  const providedKey = req.get(API_KEY_HEADER);
+
+  if (!providedKey) {
+    logRejectedAccess(req, 'missing-api-key');
+
+    return res.status(401).json({
+      error: `Cabecera ${API_KEY_HEADER} requerida`,
+    });
+  }
+
+  if (!FIS_EPN_API_KEY) {
+    return res.status(500).json({
+      error: 'API Key del servidor no configurada',
+    });
+  }
+
+  if (providedKey !== FIS_EPN_API_KEY) {
+    logRejectedAccess(req, 'invalid-api-key');
+
+    return res.status(403).json({
+      error: 'API Key inválida',
+    });
+  }
+
+  return next();
+}
 
 function migrateDatabase() {
   db.exec(`
@@ -437,7 +486,6 @@ app.get('/health', async (req, res) => {
     status: 'ok',
     api: 'pets-crud',
     database: fs.existsSync(DB_PATH) ? 'connected' : 'not-found',
-    databasePath: DB_PATH,
     hub,
     timestamp: new Date().toISOString(),
   });
@@ -482,7 +530,7 @@ app.get('/pets/:id', async (req, res) => {
   return res.json(pet);
 });
 
-app.post('/pets', async (req, res) => {
+app.post('/pets', requireApiKey, async (req, res) => {
   const errors = validatePet(req.body);
 
   if (errors.length) {
@@ -495,7 +543,7 @@ app.post('/pets', async (req, res) => {
   return res.status(201).json(pet);
 });
 
-app.put('/pets/:id', async (req, res) => {
+app.put('/pets/:id', requireApiKey, async (req, res) => {
   const exists = findPetById(req.params.id);
 
   if (!exists) {
@@ -514,7 +562,7 @@ app.put('/pets/:id', async (req, res) => {
   return res.json(updated);
 });
 
-app.delete('/pets/:id', async (req, res) => {
+app.delete('/pets/:id', requireApiKey, async (req, res) => {
   const deleted = deletePetById(req.params.id);
 
   if (!deleted) {
@@ -556,4 +604,5 @@ module.exports = {
   updatePet,
   deletePetById,
   startServer,
+  requireApiKey,
 };
