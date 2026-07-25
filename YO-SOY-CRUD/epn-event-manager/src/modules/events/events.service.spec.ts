@@ -805,7 +805,7 @@ describe('EventsService', () => {
       expect.objectContaining({ query_term: 'baz' }),
     );
   });
-it('extractQueryTerm usa data.id cuando no hay query ni filtro', async () => {
+  it('extractQueryTerm usa data.id cuando no hay query ni filtro', async () => {
     await service.registerEvent({
       source: 'S',
       entity: 'E',
@@ -856,7 +856,7 @@ it('extractQueryTerm usa data.id cuando no hay query ni filtro', async () => {
     queryRepo.find.mockResolvedValue([]);
 
     const events = await service.findAll();
-    expect(events).toHaveLength(2);
+    expect(events.data).toHaveLength(2);
+    expect(events.pagination.total).toBe(2);
   });
-
 });

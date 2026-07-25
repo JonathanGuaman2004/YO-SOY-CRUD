@@ -38,7 +38,7 @@ describe('EventsController', () => {
   });
 
   it('GET /events delega en service.findAll', async () => {
-    await controller.findAll();
+    await controller.findAll({});
     expect(service.findAll).toHaveBeenCalled();
   });
 
