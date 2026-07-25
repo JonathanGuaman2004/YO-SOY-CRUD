@@ -224,61 +224,6 @@ function validateTournament(data, isUpdate = false) {
   return errors;
 }
 
-function validateTournamentQuery(query = {}) {
-  const errors = [];
-  const page = Number(query.page);
-  const limit = Number(query.limit);
-  const minPrize = Number(query.minPrize);
-  const maxPrize = Number(query.maxPrize);
-  const dateFrom = clean(query.dateFrom);
-  const dateTo = clean(query.dateTo);
-  const sortBy = clean(query.sortBy);
-  const order = clean(query.order);
-
-  if (query.page !== undefined && (!Number.isInteger(page) || page < 1)) {
-    errors.push('page debe ser un número entero mayor o igual a 1');
-  }
-
-  if (query.limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {
-    errors.push('limit debe ser un número entero entre 1 y 100');
-  }
-
-  if (query.minPrize !== undefined && query.minPrize !== '' && (isNaN(minPrize) || minPrize < 0)) {
-    errors.push('minPrize debe ser un número positivo');
-  }
-
-  if (query.maxPrize !== undefined && query.maxPrize !== '' && (isNaN(maxPrize) || maxPrize < 0)) {
-    errors.push('maxPrize debe ser un número positivo');
-  }
-
-  if (dateFrom && isNaN(Date.parse(dateFrom))) {
-    errors.push('dateFrom debe ser una fecha válida en formato ISO (YYYY-MM-DD)');
-  }
-
-  if (dateTo && isNaN(Date.parse(dateTo))) {
-    errors.push('dateTo debe ser una fecha válida en formato ISO (YYYY-MM-DD)');
-  }
-
-  if (
-    !isNaN(minPrize) && !isNaN(maxPrize) &&
-    query.minPrize !== undefined && query.minPrize !== '' &&
-    query.maxPrize !== undefined && query.maxPrize !== '' &&
-    minPrize > maxPrize
-  ) {
-    errors.push('minPrize no puede ser mayor que maxPrize');
-  }
-
-  if (sortBy && !ALLOWED_SORT_BY.includes(sortBy)) {
-    errors.push(`sortBy inválido. Opciones: ${ALLOWED_SORT_BY.join(', ')}`);
-  }
-
-  if (order && !['asc', 'desc'].includes(order.toLowerCase())) {
-    errors.push('order debe ser "asc" o "desc"');
-  }
-
-  return errors;
-}
-
 // ── IDs ─────────────────────────────────────────────────────
 function nextTournamentId() {
   const row = db
@@ -309,73 +254,6 @@ function mapTournament(row) {
 // ── CRUD DB ──────────────────────────────────────────────────
 function findAllTournaments() {
   return db.prepare('SELECT * FROM tournaments ORDER BY createdAt DESC').all().map(mapTournament);
-}
-
-function buildTournamentWhere(filters = {}) {
-  const where = [];
-  const params = [];
-
-  if (filters.game) {
-    where.push('game = ?');
-    params.push(filters.game);
-  }
-  if (filters.status) {
-    where.push('status = ?');
-    params.push(filters.status);
-  }
-  if (filters.organizer) {
-    where.push('organizer LIKE ?');
-    params.push(`%${filters.organizer}%`);
-  }
-  if (filters.dateFrom) {
-    where.push('date_start >= ?');
-    params.push(filters.dateFrom);
-  }
-  if (filters.dateTo) {
-    where.push('date_end <= ?');
-    params.push(filters.dateTo);
-  }
-  if (filters.minPrize !== undefined && filters.minPrize !== '') {
-    where.push('prize_pool >= ?');
-    params.push(Number(filters.minPrize));
-  }
-  if (filters.maxPrize !== undefined && filters.maxPrize !== '') {
-    where.push('prize_pool <= ?');
-    params.push(Number(filters.maxPrize));
-  }
-
-  return { where, params };
-}
-
-const ALLOWED_SORT_BY = ['name', 'game', 'organizer', 'date_start', 'date_end', 'prize_pool', 'status', 'createdAt'];
-
-function findTournaments(filters = {}) {
-  const page = Math.max(Number(filters.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 100);
-  const offset = (page - 1) * limit;
-
-  const sortBy = ALLOWED_SORT_BY.includes(filters.sortBy) ? filters.sortBy : 'createdAt';
-  const order = filters.order && filters.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-
-  const { where, params } = buildTournamentWhere(filters);
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-  const total = db
-    .prepare(`SELECT COUNT(*) AS total FROM tournaments ${whereSql}`)
-    .get(...params).total;
-
-  const sql = `SELECT * FROM tournaments ${whereSql} ORDER BY ${sortBy} ${order} LIMIT ? OFFSET ?`;
-  const data = db.prepare(sql).all(...params, limit, offset).map(mapTournament);
-
-  return {
-    data,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 0,
-    },
-  };
 }
 
 function findTournamentById(id) {
@@ -509,21 +387,12 @@ app.get('/tournaments/games', (req, res) => res.json(ALLOWED_GAMES));
 
 app.get('/tournaments', async (req, res) => {
   try {
-    const errors = validateTournamentQuery(req.query);
-    if (errors.length) {
-      logger.warn('READ', 'Parámetros de consulta inválidos', { errors });
-      return res.status(400).json({ error: errors.join(', ') });
-    }
-
-    const result = findTournaments(req.query);
-    logger.info('READ', 'Consulta de torneos con filtros', result.pagination);
-    await sendEvent('QUERY', {
-      id: 'ALL', name: 'Consulta filtrada', game: 'system',
-      organizer: 'system', status: 'query', total: result.pagination.total,
-    });
-    return res.json(result);
+    const list = findAllTournaments();
+    logger.info('READ', 'Consulta general de torneos', { total: list.length });
+    await sendEvent('QUERY', { id: 'ALL', name: 'Consulta general', game: 'system', organizer: 'system', status: 'query', total: list.length });
+    return res.json(list);
   } catch (err) {
-    logger.error('READ', 'Error al consultar torneos', { error: err.message });
+    logger.error('READ', 'Error en consulta general', { error: err.message });
     return res.status(500).json({ error: 'Error interno al consultar torneos' });
   }
 });
@@ -623,8 +492,7 @@ function startServer() {
 if (require.main === module) startServer();
 
 module.exports = {
-  app, clean, normalizeStatus, validateTournament, validateTournamentQuery,
-  getTournamentStats, buildTournamentWhere, findTournaments,
+  app, clean, normalizeStatus, validateTournament, getTournamentStats,
   findAllTournaments, findTournamentById, insertTournament, updateTournament,
-  deleteTournamentById, startServer, ALLOWED_GAMES, ALLOWED_STATUS, ALLOWED_SORT_BY, logger,
+  deleteTournamentById, startServer, ALLOWED_GAMES, ALLOWED_STATUS, logger,
 };
