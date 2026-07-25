@@ -20,7 +20,11 @@ const API_KEY   = process.env.FIS_EPN_KEY    || 'audiohub-2026';
 const LOG_DIR   = path.join(__dirname, 'logs');
 const LOG_PATH  = path.join(LOG_DIR, 'audiohub.log');
 
-const ALLOWED_TYPES = ['cancion', 'podcast'];
+const ALLOWED_TYPES   = ['cancion', 'podcast'];
+const ALLOWED_SORT_BY = ['titulo', 'autor', 'createdAt'];
+const ALLOWED_ORDER   = ['asc', 'desc'];
+const DEFAULT_LIMIT   = 10;
+const MAX_LIMIT       = 100;
 
 fs.mkdirSync(DB_DIR,  { recursive: true });
 fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -169,6 +173,78 @@ function findAllAudios() {
   return db.prepare('SELECT * FROM audios ORDER BY createdAt DESC').all().map(mapAudio);
 }
 
+// ── Filtros, orden y paginación (AU-01) ───────────────────────────────────────
+
+function queryAudios(params = {}) {
+  const errors = [];
+
+  // Sanitizar filtros
+  const tipo  = params.tipo  !== undefined ? clean(params.tipo).toLowerCase() : null;
+  const autor = params.autor !== undefined ? clean(params.autor).toLowerCase() : null;
+  const q     = params.q     !== undefined ? clean(params.q).toLowerCase()     : null;
+
+  if (tipo && !ALLOWED_TYPES.includes(tipo)) {
+    errors.push(`tipo debe ser uno de: ${ALLOWED_TYPES.join(', ')}`);
+  }
+
+  // Sanitizar orden
+  const sortByRaw = params.sortBy !== undefined ? clean(params.sortBy) : 'createdAt';
+  const orderRaw  = params.order  !== undefined ? clean(params.order).toLowerCase() : 'desc';
+
+  if (!ALLOWED_SORT_BY.includes(sortByRaw)) {
+    errors.push(`sortBy debe ser uno de: ${ALLOWED_SORT_BY.join(', ')}`);
+  }
+  if (!ALLOWED_ORDER.includes(orderRaw)) {
+    errors.push(`order debe ser uno de: ${ALLOWED_ORDER.join(', ')}`);
+  }
+
+  // Sanitizar paginación
+  const pageNum  = Number.parseInt(params.page,  10);
+  const limitNum = Number.parseInt(params.limit, 10);
+
+  const page  = params.page  === undefined ? 1              : pageNum;
+  const limit = params.limit === undefined ? DEFAULT_LIMIT  : limitNum;
+
+  if (!Number.isInteger(page)  || page  < 1) errors.push('page debe ser un entero >= 1');
+  if (!Number.isInteger(limit) || limit < 1) errors.push('limit debe ser un entero >= 1');
+  if (Number.isInteger(limit) && limit > MAX_LIMIT) {
+    errors.push(`limit no puede superar ${MAX_LIMIT}`);
+  }
+
+  if (errors.length) return { errors };
+
+  // Construir WHERE dinámico
+  const where  = [];
+  const values = [];
+
+  if (tipo)  { where.push('tipo = ?');              values.push(tipo); }
+  if (autor) { where.push('LOWER(autor) LIKE ?');   values.push(`%${autor}%`); }
+  if (q)     { where.push('LOWER(titulo) LIKE ?');  values.push(`%${q}%`); }
+
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const orderSql = `ORDER BY ${sortByRaw} ${orderRaw.toUpperCase()}`;
+  const offset   = (page - 1) * limit;
+
+  const total = db
+    .prepare(`SELECT COUNT(*) AS n FROM audios ${whereSql}`)
+    .get(...values).n;
+
+  const rows = db
+    .prepare(`SELECT * FROM audios ${whereSql} ${orderSql} LIMIT ? OFFSET ?`)
+    .all(...values, limit, offset)
+    .map(mapAudio);
+
+  return {
+    data: rows,
+    pagination: {
+      total,
+      page,
+      limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+    },
+  };
+}
+
 function findAudioById(id) {
   const row = db.prepare('SELECT * FROM audios WHERE id = ?').get(clean(id));
   return row ? mapAudio(row) : null;
@@ -281,10 +357,35 @@ app.get('/audios/types', requireApiKey, (req, res) => {
 });
 
 app.get('/audios', requireApiKey, async (req, res) => {
-  const list = findAllAudios();
-  logger.info('Consulta general de audios', { total: list.length });
-  await sendEvent('QUERY', { id: 'ALL', tipo: 'system', titulo: 'Consulta general', autor: 'system', total: list.length });
-  return res.json(list);
+  const result = queryAudios(req.query);
+
+  if (result.errors) {
+    logger.warn('Parámetros inválidos en GET /audios', { errors: result.errors, query: req.query });
+    return res.status(400).json({ error: result.errors.join(', ') });
+  }
+
+  logger.info('Consulta paginada de audios', {
+    total: result.pagination.total,
+    page:  result.pagination.page,
+    limit: result.pagination.limit,
+    filtros: {
+      tipo:   req.query.tipo   ?? null,
+      autor:  req.query.autor  ?? null,
+      q:      req.query.q      ?? null,
+      sortBy: req.query.sortBy ?? null,
+      order:  req.query.order  ?? null,
+    },
+  });
+
+  await sendEvent('QUERY', {
+    id:     'ALL',
+    tipo:   'system',
+    titulo: 'Consulta paginada',
+    autor:  'system',
+    total:  result.pagination.total,
+  });
+
+  return res.json(result);
 });
 
 app.get('/audios/:id', requireApiKey, async (req, res) => {
@@ -371,5 +472,7 @@ if (require.main === module) startServer();
 module.exports = {
   app, clean, normalizeTipo, validateAudio, getAudioStats,
   findAllAudios, findAudioById, insertAudio, updateAudio,
-  deleteAudioById, startServer, ALLOWED_TYPES, requireApiKey,
+  deleteAudioById, queryAudios, startServer,
+  ALLOWED_TYPES, ALLOWED_SORT_BY, ALLOWED_ORDER, MAX_LIMIT,
+  requireApiKey,
 };
