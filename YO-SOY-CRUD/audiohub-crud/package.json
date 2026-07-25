@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test test/audio-validation.test.js test/audio-query.test.js",
+    "test": "node --test test/audio-validation.test.js test/audio-query.test.js test/audio-duplicates.test.js",
     "lint": "eslint .",
     "check": "npm run lint && npm test"
   },
