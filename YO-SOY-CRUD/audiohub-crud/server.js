@@ -123,6 +123,10 @@ function clean(value) {
   return String(value).trim();
 }
 
+function normalize(value) {
+  return clean(value).toLowerCase().replace(/\s+/g, ' ');
+}
+
 function normalizeTipo(tipo) {
   const t = clean(tipo).toLowerCase();
   return ALLOWED_TYPES.includes(t) ? t : 'cancion';
@@ -248,6 +252,30 @@ function queryAudios(params = {}) {
 function findAudioById(id) {
   const row = db.prepare('SELECT * FROM audios WHERE id = ?').get(clean(id));
   return row ? mapAudio(row) : null;
+}
+
+// ── Detección de duplicados (AU-02) ───────────────────────────────────────────
+// Un audio es duplicado cuando coincide tipo + titulo normalizado + autor normalizado.
+// La comparación ignora mayúsculas/minúsculas y espacios sobrantes.
+
+function findDuplicateAudio({ tipo, titulo, autor, excludeId = null }) {
+  const tipoNorm   = normalize(tipo);
+  const tituloNorm = normalize(titulo);
+  const autorNorm  = normalize(autor);
+
+  if (!tipoNorm || !tituloNorm || !autorNorm) return null;
+
+  const candidates = db
+    .prepare('SELECT * FROM audios WHERE tipo = ?')
+    .all(tipoNorm);
+
+  const match = candidates.find(row =>
+    row.id !== excludeId &&
+    normalize(row.titulo) === tituloNorm &&
+    normalize(row.autor)  === autorNorm
+  );
+
+  return match ? mapAudio(match) : null;
 }
 
 function insertAudio(body) {
@@ -405,6 +433,26 @@ app.post('/audios', requireApiKey, async (req, res) => {
     logger.warn('Validación fallida en CREATE', { errors, body: req.body });
     return res.status(400).json({ error: errors.join(', ') });
   }
+
+  const duplicate = findDuplicateAudio({
+    tipo:   req.body.tipo,
+    titulo: req.body.titulo,
+    autor:  req.body.autor,
+  });
+
+  if (duplicate) {
+    logger.warn('Intento de crear audio duplicado', {
+      tipo:      req.body.tipo,
+      titulo:    req.body.titulo,
+      autor:     req.body.autor,
+      duplicado: duplicate.id,
+    });
+    return res.status(409).json({
+      error: 'Audio duplicado: ya existe un registro con el mismo tipo, título y autor.',
+      duplicate,
+    });
+  }
+
   try {
     const audio = insertAudio(req.body);
     logger.info('Audio creado', { id: audio.id, titulo: audio.titulo, autor: audio.autor });
@@ -422,11 +470,36 @@ app.put('/audios/:id', requireApiKey, async (req, res) => {
     logger.warn('Audio no encontrado para UPDATE', { id: req.params.id });
     return res.status(404).json({ error: 'Audio no encontrado' });
   }
+
   const errors = validateAudio(req.body, true);
   if (errors.length) {
     logger.warn('Validación fallida en UPDATE', { errors, id: req.params.id });
     return res.status(400).json({ error: errors.join(', ') });
   }
+
+  // Combinar datos actuales con los del body para chequear duplicado sobre el estado final
+  const finalTipo   = req.body.tipo   !== undefined ? req.body.tipo   : exists.tipo;
+  const finalTitulo = req.body.titulo !== undefined ? req.body.titulo : exists.titulo;
+  const finalAutor  = req.body.autor  !== undefined ? req.body.autor  : exists.autor;
+
+  const duplicate = findDuplicateAudio({
+    tipo:      finalTipo,
+    titulo:    finalTitulo,
+    autor:     finalAutor,
+    excludeId: exists.id,
+  });
+
+  if (duplicate) {
+    logger.warn('Intento de actualizar audio a valores duplicados', {
+      id:        exists.id,
+      duplicado: duplicate.id,
+    });
+    return res.status(409).json({
+      error: 'Audio duplicado: los nuevos valores coinciden con otro registro existente.',
+      duplicate,
+    });
+  }
+
   try {
     const updated = updateAudio(req.params.id, req.body);
     logger.info('Audio actualizado', { id: updated.id, titulo: updated.titulo });
@@ -470,9 +543,9 @@ function startServer() {
 if (require.main === module) startServer();
 
 module.exports = {
-  app, clean, normalizeTipo, validateAudio, getAudioStats,
-  findAllAudios, findAudioById, insertAudio, updateAudio,
-  deleteAudioById, queryAudios, startServer,
+  app, clean, normalize, normalizeTipo, validateAudio, getAudioStats,
+  findAllAudios, findAudioById, findDuplicateAudio,
+  insertAudio, updateAudio, deleteAudioById, queryAudios, startServer,
   ALLOWED_TYPES, ALLOWED_SORT_BY, ALLOWED_ORDER, MAX_LIMIT,
   requireApiKey,
 };
