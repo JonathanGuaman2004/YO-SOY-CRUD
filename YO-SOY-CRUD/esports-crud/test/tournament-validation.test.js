@@ -185,6 +185,9 @@ const {
   buildTournamentWhere,
   validateTournamentQuery,
   ALLOWED_SORT_BY,
+  validateUpdateBody,
+  validateFinalDateRange,
+  VALID_UPDATE_FIELDS,
 } = require('../server.js');
 
 // ═══════════════════════════════════════════════════
@@ -344,5 +347,86 @@ describe('validateTournamentQuery() — validación de parámetros', () => {
 
   it('acepta limit=100 (máximo permitido)', () => {
     assert.deepEqual(validateTournamentQuery({ limit: '100' }), []);
+  });
+});
+
+// ═══════════════════════════════════════════════════
+// SUITE 8 — validateUpdateBody()
+// ═══════════════════════════════════════════════════
+describe('validateUpdateBody() — cuerpo de actualización', () => {
+  it('rechaza body vacío {} (TC-ES-02-004)', () => {
+    const e = validateUpdateBody({});
+    assert.ok(e.some(x => x.includes('No se enviaron campos')));
+  });
+
+  it('rechaza body null', () => {
+    const e = validateUpdateBody(null);
+    assert.ok(e.length > 0);
+  });
+
+  it('rechaza body con campos no válidos', () => {
+    const e = validateUpdateBody({ invalidField: 'test' });
+    assert.ok(e.some(x => x.includes('No se enviaron campos')));
+  });
+
+  it('acepta body con al menos un campo válido', () => {
+    VALID_UPDATE_FIELDS.forEach(field => {
+      const body = { [field]: 'test' };
+      assert.deepEqual(validateUpdateBody(body), []);
+    });
+  });
+
+  it('acepta body con múltiples campos válidos', () => {
+    const e = validateUpdateBody({ name: 'Nuevo nombre', game: 'Valorant' });
+    assert.deepEqual(e, []);
+  });
+});
+
+// ═══════════════════════════════════════════════════
+// SUITE 9 — validateFinalDateRange()
+// ═══════════════════════════════════════════════════
+describe('validateFinalDateRange() — rango de fechas en actualización parcial', () => {
+  const stored = {
+    date_start: '2026-06-01',
+    date_end: '2026-06-15',
+  };
+
+  it('acepta rango válido sin cambios en fechas', () => {
+    assert.deepEqual(validateFinalDateRange(stored, {}), []);
+  });
+
+  it('acepta rango válido actualizando solo date_start (TC-ES-02-003)', () => {
+    const e = validateFinalDateRange(stored, { date_start: '2026-06-05' });
+    assert.deepEqual(e, []);
+  });
+
+  it('rechaza date_start posterior a date_end almacenado (TC-ES-02-001)', () => {
+    const e = validateFinalDateRange(stored, { date_start: '2026-06-20' });
+    assert.ok(e.some(x => x.includes('date_end')));
+  });
+
+  it('rechaza date_end anterior a date_start almacenado (TC-ES-02-002)', () => {
+    const e = validateFinalDateRange(stored, { date_end: '2026-05-01' });
+    assert.ok(e.some(x => x.includes('date_end')));
+  });
+
+  it('rechaza date_start igual a date_end', () => {
+    const e = validateFinalDateRange(stored, { date_start: '2026-06-15', date_end: '2026-06-15' });
+    assert.ok(e.some(x => x.includes('date_end')));
+  });
+
+  it('acepta rango válido modificando ambas fechas', () => {
+    const e = validateFinalDateRange(stored, { date_start: '2026-07-01', date_end: '2026-07-15' });
+    assert.deepEqual(e, []);
+  });
+
+  it('rechaza date_start con formato inválido', () => {
+    const e = validateFinalDateRange(stored, { date_start: 'fecha-invalida' });
+    assert.ok(e.some(x => x.includes('date_start')));
+  });
+
+  it('rechaza date_end con formato inválido', () => {
+    const e = validateFinalDateRange(stored, { date_end: 'no-valida' });
+    assert.ok(e.some(x => x.includes('date_end')));
   });
 });
