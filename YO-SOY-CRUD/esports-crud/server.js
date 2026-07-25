@@ -349,73 +349,6 @@ function findAllTournaments() {
   return db.prepare('SELECT * FROM tournaments ORDER BY createdAt DESC').all().map(mapTournament);
 }
 
-function buildTournamentWhere(filters = {}) {
-  const where = [];
-  const params = [];
-
-  if (filters.game) {
-    where.push('game = ?');
-    params.push(filters.game);
-  }
-  if (filters.status) {
-    where.push('status = ?');
-    params.push(filters.status);
-  }
-  if (filters.organizer) {
-    where.push('organizer LIKE ?');
-    params.push(`%${filters.organizer}%`);
-  }
-  if (filters.dateFrom) {
-    where.push('date_start >= ?');
-    params.push(filters.dateFrom);
-  }
-  if (filters.dateTo) {
-    where.push('date_end <= ?');
-    params.push(filters.dateTo);
-  }
-  if (filters.minPrize !== undefined && filters.minPrize !== '') {
-    where.push('prize_pool >= ?');
-    params.push(Number(filters.minPrize));
-  }
-  if (filters.maxPrize !== undefined && filters.maxPrize !== '') {
-    where.push('prize_pool <= ?');
-    params.push(Number(filters.maxPrize));
-  }
-
-  return { where, params };
-}
-
-const ALLOWED_SORT_BY = ['name', 'game', 'organizer', 'date_start', 'date_end', 'prize_pool', 'status', 'createdAt'];
-
-function findTournaments(filters = {}) {
-  const page = Math.max(Number(filters.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(filters.limit) || 10, 1), 100);
-  const offset = (page - 1) * limit;
-
-  const sortBy = ALLOWED_SORT_BY.includes(filters.sortBy) ? filters.sortBy : 'createdAt';
-  const order = filters.order && filters.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-
-  const { where, params } = buildTournamentWhere(filters);
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-  const total = db
-    .prepare(`SELECT COUNT(*) AS total FROM tournaments ${whereSql}`)
-    .get(...params).total;
-
-  const sql = `SELECT * FROM tournaments ${whereSql} ORDER BY ${sortBy} ${order} LIMIT ? OFFSET ?`;
-  const data = db.prepare(sql).all(...params, limit, offset).map(mapTournament);
-
-  return {
-    data,
-    pagination: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit) || 0,
-    },
-  };
-}
-
 function findTournamentById(id) {
   const row = db.prepare('SELECT * FROM tournaments WHERE id = ?').get(clean(id));
   return row ? mapTournament(row) : null;
@@ -547,21 +480,12 @@ app.get('/tournaments/games', (req, res) => res.json(ALLOWED_GAMES));
 
 app.get('/tournaments', async (req, res) => {
   try {
-    const errors = validateTournamentQuery(req.query);
-    if (errors.length) {
-      logger.warn('READ', 'Parámetros de consulta inválidos', { errors });
-      return res.status(400).json({ error: errors.join(', ') });
-    }
-
-    const result = findTournaments(req.query);
-    logger.info('READ', 'Consulta de torneos con filtros', result.pagination);
-    await sendEvent('QUERY', {
-      id: 'ALL', name: 'Consulta filtrada', game: 'system',
-      organizer: 'system', status: 'query', total: result.pagination.total,
-    });
-    return res.json(result);
+    const list = findAllTournaments();
+    logger.info('READ', 'Consulta general de torneos', { total: list.length });
+    await sendEvent('QUERY', { id: 'ALL', name: 'Consulta general', game: 'system', organizer: 'system', status: 'query', total: list.length });
+    return res.json(list);
   } catch (err) {
-    logger.error('READ', 'Error al consultar torneos', { error: err.message });
+    logger.error('READ', 'Error en consulta general', { error: err.message });
     return res.status(500).json({ error: 'Error interno al consultar torneos' });
   }
 });
@@ -673,8 +597,7 @@ function startServer() {
 if (require.main === module) startServer();
 
 module.exports = {
-  app, clean, normalizeStatus, validateTournament, validateTournamentQuery,
-  getTournamentStats, buildTournamentWhere, findTournaments,
+  app, clean, normalizeStatus, validateTournament, getTournamentStats,
   findAllTournaments, findTournamentById, insertTournament, updateTournament,
   deleteTournamentById, startServer, ALLOWED_GAMES, ALLOWED_STATUS, ALLOWED_SORT_BY, logger,
   validateUpdateBody, validateFinalDateRange, VALID_UPDATE_FIELDS,
