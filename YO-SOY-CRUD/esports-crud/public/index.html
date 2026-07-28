@@ -774,7 +774,8 @@ async function loadStats() {
 async function loadTournaments() {
   try {
     const r = await fetch(`${BASE}/tournaments`);
-    tournaments = await r.json();
+    const json = await r.json();
+    tournaments = json.data;   // ✅
     renderList();
   } catch { toast('Error al cargar torneos', 'err'); }
 }

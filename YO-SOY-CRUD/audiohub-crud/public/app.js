@@ -51,8 +51,8 @@ async function checkHealth() {
 async function cargarAudios() {
   try {
     const r    = await fetch(API, { headers: HEADERS });
-    const list = await r.json();
-    renderizarTabla(list);
+    const json = await r.json();
+    renderizarTabla(json.data);   // ✅
   } catch (err) {
     console.error('Error al cargar audios:', err);
     toast('Error al cargar la biblioteca', 'error');
